@@ -1,0 +1,8 @@
+Open Items:
+Lambda function to read files from S3 and csv
+Json file for sovereign/legacy
+Logic for Legacy file i.e how to detect a legacy file?
+Dynamo DB schema to update status after textract/LLM/Redaction
+Get latest prompt from Steve
+Get latest testing stats/highlights from Steve on the revised prompt for SSN
+What is supervisor Queue ?
