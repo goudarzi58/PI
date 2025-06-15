@@ -15,10 +15,14 @@
     },
     "sqs": {
       "queue_url": "https://sqs.us-west-2.amazonaws.com/123456789012/your-queue"
+    },
+    "s3": {
+      "input_path": "s3://your-bucket/input/",
+      "output_path": "s3://your-bucket/output/",
+      "archive_path": "s3://your-bucket/archive/"
     }
   }
 }
-
 
 ###########
 
