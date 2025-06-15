@@ -1,0 +1,48 @@
+ config.json File
+
+
+
+{
+  "aws": {
+    "access_key": "YOUR_ACCESS_KEY",
+    "secret_key": "YOUR_SECRET_KEY",
+    "region": "us-west-2"
+  },
+  "services": {
+    "textract": "textract",
+    "dynamodb": {
+      "table_name": "your-dynamodb-table"
+    },
+    "sqs": {
+      "queue_url": "https://sqs.us-west-2.amazonaws.com/123456789012/your-queue"
+    }
+  }
+}
+
+
+###########
+
+import json
+import boto3
+
+# Load config from file
+with open('config.json') as f:
+    config = json.load(f)
+
+# Extract credentials and config
+aws_config = config['aws']
+services_config = config['services']
+
+# Initialize AWS clients
+session = boto3.Session(
+    aws_access_key_id=aws_config['access_key'],
+    aws_secret_access_key=aws_config['secret_key'],
+    region_name=aws_config['region']
+)
+
+# Example AWS service clients
+textract_client = session.client(services_config['textract'])
+dynamodb_client = session.resource('dynamodb')
+dynamodb_table = dynamodb_client.Table(services_config['dynamodb']['table_name'])
+sqs_client = session.client('sqs')
+sqs_queue_url = services_config['sqs']['queue_url']
