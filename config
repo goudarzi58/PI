@@ -11,7 +11,9 @@
   "services": {
     "textract": "textract",
     "dynamodb": {
-      "table_name": "your-dynamodb-table"
+      "table_name": "your-dynamodb-table",
+      "partition_key": "PK",
+      "sort_key": "SK"
     },
     "sqs": {
       "queue_url": "https://sqs.us-west-2.amazonaws.com/123456789012/your-queue"
@@ -21,32 +23,73 @@
       "output_path": "s3://your-bucket/output/",
       "archive_path": "s3://your-bucket/archive/"
     }
+  },
+  "prompt": {
+    "system_message": "You are a helpful AI assistant that extracts structured metadata from documents.",
+    "user_prompt_template": "Extract the following fields from the text: {fields}. Return the output in JSON format."
   }
 }
 
-###########
+
+###########   load_config_and_init_clients.py
 
 import json
 import boto3
 
-# Load config from file
-with open('config.json') as f:
+# --- Load config.json ---
+with open('config.json', 'r') as f:
     config = json.load(f)
 
-# Extract credentials and config
+# --- Extract AWS config ---
 aws_config = config['aws']
 services_config = config['services']
+prompt_config = config['prompt']
 
-# Initialize AWS clients
+# --- Create Boto3 Session ---
 session = boto3.Session(
     aws_access_key_id=aws_config['access_key'],
     aws_secret_access_key=aws_config['secret_key'],
     region_name=aws_config['region']
 )
 
-# Example AWS service clients
+# --- Initialize AWS Clients ---
 textract_client = session.client(services_config['textract'])
-dynamodb_client = session.resource('dynamodb')
-dynamodb_table = dynamodb_client.Table(services_config['dynamodb']['table_name'])
+dynamodb_resource = session.resource('dynamodb')
+dynamodb_table = dynamodb_resource.Table(services_config['dynamodb']['table_name'])
 sqs_client = session.client('sqs')
-sqs_queue_url = services_config['sqs']['queue_url']
+s3_client = session.client('s3')
+
+# --- DynamoDB Key Info ---
+partition_key = services_config['dynamodb']['partition_key']
+sort_key = services_config['dynamodb']['sort_key']
+
+# --- S3 Paths ---
+s3_input_path = services_config['s3']['input_path']
+s3_output_path = services_config['s3']['output_path']
+s3_archive_path = services_config['s3']['archive_path']
+
+# --- Prompt Handling ---
+system_message = prompt_config['system_message']
+user_prompt_template = prompt_config['user_prompt_template']
+user_prompt = user_prompt_template.format(fields="name, date, address")
+
+# --- Example Usage ---
+
+# Put item in DynamoDB
+item = {
+    partition_key: "user#001",
+    sort_key: "doc#2025-06-15",
+    "status": "processed"
+}
+dynamodb_table.put_item(Item=item)
+
+# Send message to SQS
+sqs_client.send_message(
+    QueueUrl=services_config['sqs']['queue_url'],
+    MessageBody="New document processed and saved."
+)
+
+# Print formatted prompt
+print("System Prompt:", system_message)
+print("User Prompt:", user_prompt)
+
