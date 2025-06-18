@@ -1,0 +1,85 @@
+You need to modify this lambda function:
+
+
+import os
+import boto3
+import csv
+from io import StringIO
+from pathlib import Path
+
+# Object Initializations
+s3 = boto3.client('s3')
+sqs = boto3.client('sqs')
+
+def add_data_to_queue(queueUrl, object_key):
+    return sqs.send_message(
+        QueueUrl = queueUrl,
+        MessageBody = object_key
+    )
+
+def read_csv_from_s3(bucket_name, object_key):
+    response = s3.get_object(Bucket=bucket_name, Key=object_key)
+    csv_content = response['Body'].read().decode('utf-8')
+    csv_reader = csv.reader(StringIO(csv_content))
+    return csv_reader
+
+def lambda_handler(event, context):
+    # Variable Initializations
+    bucket_name = os.environ.get('CSV_BUCKET_NAME')
+    object_key = os.environ.get('CSV_OBJECT_KEY')
+    queueUrl = os.environ.get('SQS_QUEUE_URL')
+
+    file_extension = Path(object_key).suffix.lower()
+    if file_extension != '.csv':
+        return "provided file is not csv"
+
+    csv_reader = read_csv_from_s3(bucket_name, object_key)
+    for row in csv_reader:
+        add_data_to_queue(queueUrl, row[7])
+
+    return "Done"
+
+
+With this environmental variables:
+
+Key                                      Value
+CSV_BUCKET_NAME               pii-redaction-code
+
+CSV_OBJECT_KEY                Dev/files.csv
+
+SQS_QUEUE_URL                 https://sqs.us-east-1.amazonaws.com/160885272637/pii-redaction-rawpdfs
+
+
+Now you want to create a new lambda function that directly read the name of the pdf file from the bucket_name and send message to sqs. these are the information you need:
+
+file_name: T_0001.PDF, T_0002.PDF
+bucket_name: https://something.s3.amazonaws.com/
+
+environmental variables:
+
+PDF_BUCKET_NAME               somethingbucket
+
+PDF_OBJECT_KEY                ???
+
+
+the message to sqs:
+
+{
+  "MessageId": "PLACEHOLDER_ID_1",
+  "ReceiptHandle": "PLACEHOLDER_RECEIPT_1",
+  "MD5OfBody": "PLACEHOLDER_MD5_1",
+  "Body": "T_0001.PDF",
+  "Attributes": {}
+}
+
+{
+  "MessageId": "PLACEHOLDER_ID_2",
+  "ReceiptHandle": "PLACEHOLDER_RECEIPT_2",
+  "MD5OfBody": "PLACEHOLDER_MD5_2",
+  "Body": "T_0002.PDF",
+  "Attributes": {}
+}
+
+SQS_QUEUE_URL                 https://sqs.us-east-1.amazonaws.com/1234/somethingsqs
+
+What are the new environmental variables?
