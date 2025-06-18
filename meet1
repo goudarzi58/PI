@@ -1,0 +1,73 @@
+In Abbas's absence, he proactively initiated work on the configuration setup by externalizing all previously hard-coded variables into a config.json file. This included parameters such as the prompt, SDA values, S3 bucket locations, and other necessary runtime variables.
+
+Current Status:
+
+This morning, Abbas and I synced to review the progress.
+
+A dummy Python script was created to validate the ability to read all variables from the config.json file.
+
+Minor adjustments were made during our working session, but the script now successfully reads all required configuration values.
+
+✅ Outcome:
+The configuration setup—externalizing variables and validating the JSON structure—is complete.
+
+Messaging Queue & Lambda Function Access – Status Update
+Messaging Queue (SOS Queue):
+
+There is still uncertainty around the use of the SOS queue:
+
+Should we use the existing queue?
+
+Or should we provision a new queue?
+
+Action Item: Connect with Bharat to clarify the intended design and integration pattern for messaging queues.
+
+Lambda Function Access:
+
+Initial Blocker: Neither team member had access earlier, which was required for testing message consumption and triggering logic.
+
+Update: Abbas now has access to the Lambda function and has started reviewing it.
+
+Next Step: Monica to follow up with Jamal to gain Lambda access as well, in case the issue persists on her end.
+
+Open Planning Items & Technical Dependencies
+1. Lambda Function Understanding:
+
+Currently reviewing the Lambda function shared by Bharat (which processes a CSV-based input).
+
+No queue is directly visible in the code at this point.
+
+Clarification needed:
+
+Is there a queue integration planned post-CSV processing?
+
+How will messages be routed downstream?
+
+2. Messaging Architecture:
+
+Still need to understand how the SOS queue or other message queues tie into the Lambda workflow.
+
+Action Item: Connect with Bharat for architectural clarification regarding:
+
+Expected message flow
+
+Existing vs. new queue usage
+
+3. DynamoDB Integration:
+
+Current inserts/updates into DynamoDB have been commented out.
+
+Need to finalize:
+
+Table structure
+
+Schema design
+
+Once defined, a new DynamoDB instance will be created for testing.
+
+4. File Testing Milestone (Today):
+
+Goal: Complete E2E test with a single sample file by end of day today.
+
+Will involve triggering the Lambda, validating output locations, and ensuring redaction/manual review flows.
+
