@@ -1,0 +1,87 @@
+🔧 Development Team Summary
+Team Members Referenced: Abbas, Monica, Anil, Abhijit, Vijay
+
+ 1. Go-Live Readiness (Target: June 30)
+Team is tracking toward a June 30 Go-Live.
+
+Daily 9:30 AM sync scheduled to align across teams; Abbas, Monica, and Anil are expected to join.
+
+Final review with Abhijit and Vijay to ensure all items are on track.
+
+Any new requirements post-June 30 will be documented separately and not included in current scope.
+
+📂 2. S3 Bucket Structure & File Routing
+Only sovereign documents will go to the ready-for-review bucket under /sovereign/.
+
+All other redacted files will go to the redacted bucket.
+
+Folder-level separation will be used instead of additional buckets for maintainability.
+
+Future-proofing by optionally adding /pre-1990/ or other folders inside ready-for-review.
+
+3. DynamoDB Integration
+Dev team will start writing redaction metadata into DynamoDB.
+
+Required schema to include:
+
+file_name
+
+redaction_status
+
+s3_location
+
+document_type (e.g., sovereign, standard)
+
+processed_at, redacted_at
+
+Appian will not query DynamoDB directly (at this point); API can be considered later.
+
+4. JSON Manifest File (Alternate Audit Trail)
+In addition to DynamoDB, team will generate JSON files per batch/day:
+
+Lists all processed files and their status
+
+Stored in /status-manifests/ S3 path
+
+Reuses pattern from Comprehend solution for consistency
+
+Appian can fetch JSON files instead of relying on API calls
+
+5. Access to 4.5M Documents
+Access is still pending to the 4.5 million documents Abhi shared
+
+This is a critical blocker for initiating runs in staging or dev environments
+
+Team needs to confirm:
+
+S3 bucket permissions
+
+Copy/sync paths for dev/test/staging
+
+ 6. Dev/Test Environment Folder Pickup Logic
+Dev team to confirm with SOS whether it’s acceptable to:
+
+Reuse existing sample files
+
+Validate pickup/drop-off flow using folder simulation
+
+Final confirmation expected during next SOS touchpoint
+
+7. New Requirement Handling (CYA Strategy)
+Any new asks must be:
+
+Formally documented (e.g., by Avi or Victoria)
+
+Reviewed for effort/timeline
+
+Logged as out-of-scope for June 30
+
+Abhi to send skeleton of new request doc for traceability
+
+8. Communication Logistics
+Abbas, Monica, and Anil will continue to work via:
+
+Smaller group chat with Uday and Cyn
+
+Broader team chat for cross-functional visibility when needed
+
