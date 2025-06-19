@@ -145,3 +145,12 @@ SQS_QUEUE_URL  -----
 
 S3: Name, Type, Last modified, Size, Storage class
 
+#####################
+This (yellow highlighted) is the bucket details and file name should look for.
+https://sos-appian-prod-ucc.s3.amazonaws.com/T000591995700024V0000R000150004857545P00092D000591995700024UCC_BEST_OriginalFiling_591995700024.PDF
+--There should be around 4.15M. I think VC mentioned newest to  oldest order. 
+
+Don’t look for
+https://sos-appian-prod-ucc.s3.amazonaws.com/T000565949930012V0000R000140027977815P00102D000565949930012UCC_BEST_OriginalFilingNonRedacted_565949930012.PDF
+https://sos-appian-prod-ucc.s3.amazonaws.com/T000633769790001V0000R000150031785040P00093D000633769790001UCC_BEST_Acknowledgment_633769790001_17957502.PDF
+
