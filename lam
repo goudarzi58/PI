@@ -50,6 +50,56 @@ CSV_OBJECT_KEY                Dev/files.csv
 SQS_QUEUE_URL                 https://sqs.us-east-1.amazonaws.com/160885272637/pii-redaction-rawpdfs
 
 
+####################################
+import os
+import boto3
+import re
+
+# Initialize AWS clients
+s3 = boto3.client('s3')
+sqs = boto3.client('sqs')
+
+# Compile the regex pattern once
+FILE_NAME_PATTERN = re.compile(r'^T_\d+\.PDF$', re.IGNORECASE)
+
+def list_matching_pdf_files(bucket_name, prefix=''):
+    paginator = s3.get_paginator('list_objects_v2')
+    page_iterator = paginator.paginate(Bucket=bucket_name, Prefix=prefix)
+
+    matched_files = []
+    for page in page_iterator:
+        for obj in page.get('Contents', []):
+            key = obj['Key']
+            filename = key.split('/')[-1]  # get only the filename, not the full path
+            if FILE_NAME_PATTERN.match(filename):
+                matched_files.append(key)
+    return matched_files
+
+def send_to_sqs(queue_url, file_name):
+    return sqs.send_message(
+        QueueUrl=queue_url,
+        MessageBody=file_name
+    )
+
+def lambda_handler(event, context):
+    # Get environment variables
+    bucket_name = os.environ['PDF_BUCKET_NAME']
+    prefix = os.environ.get('PDF_OBJECT_PREFIX', '')
+    queue_url = os.environ['SQS_QUEUE_URL']
+
+    # List matching PDF files
+    pdf_files = list_matching_pdf_files(bucket_name, prefix)
+
+    # Send each file name to SQS
+    for pdf_file in pdf_files:
+        send_to_sqs(queue_url, pdf_file)
+
+    return {
+        'statusCode': 200,
+        'body': f'{len(pdf_files)} matching PDF file names sent to SQS.'
+    }
+
+
 #################################### lambda from s3 directly:
 
 import os
