@@ -90,3 +90,8 @@ def lambda_handler(event, context):
 env:
 BUCKET_NAME   -------
 SQS_QUEUE_URL  -----
+
+#####################
+
+S3: Name, Type, Last modified, Size, Storage class
+
