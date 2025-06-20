@@ -250,5 +250,17 @@ def lambda_handler(event, context):
         "status": "Batch sent",
         "files_sent": total_sent
     }
-
+###############################################
+{
+  "MessageId": "PLACEHOLDER_ID_2",
+  "ReceiptHandle": "PLACEHOLDER_RECEIPT_2",
+  "MD5OfBody": "PLACEHOLDER_MD5_2",
+  "Body": "T000046553550002V0000R000040046646060P00092D000046553550002UCC_BEST_OriginalFiling_46553550002.PDF",
+  "Attributes": {}
+}
+#############################################
+{
+  'file_id': 1, 
+  's3_key': 'T000000000449534V0000R000007400006611P00102D000000000449534UCC_BEST_OriginalFiling_449534.PDF', 'last_modified': '2025-06-20T17:35:28+00:00'
+}
 
