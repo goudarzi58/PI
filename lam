@@ -264,3 +264,91 @@ def lambda_handler(event, context):
   's3_key': 'T000000000449534V0000R000007400006611P00102D000000000449534UCC_BEST_OriginalFiling_449534.PDF', 'last_modified': '2025-06-20T17:35:28+00:00'
 }
 
+#################################################
+
+import os
+import boto3
+from botocore.exceptions import ClientError
+
+# AWS Clients
+s3 = boto3.client('s3')
+sqs = boto3.client('sqs')
+
+# Constants
+CHUNK_SIZE = 50000
+INCLUDE_PATTERN = 'UCC_BEST_OriginalFiling'
+EXCLUDE_PATTERNS = ['BEST_OriginalFilingNonRedacted', 'UCC_BEST_Acknowledgment']
+
+def list_filtered_pdf_files(bucket_name, prefix=''):
+    paginator = s3.get_paginator('list_objects_v2')
+    page_iterator = paginator.paginate(Bucket=bucket_name, Prefix=prefix)
+
+    filtered_files = []
+    for page in page_iterator:
+        for obj in page.get('Contents', []):
+            key = obj['Key']
+            if key.lower().endswith('.pdf') and INCLUDE_PATTERN in key:
+                if all(excl not in key for excl in EXCLUDE_PATTERNS):
+                    filtered_files.append({
+                        "Key": key,
+                        "LastModified": obj["LastModified"]
+                    })
+    return filtered_files
+
+def is_sqs_queue_empty(queue_url):
+    attrs = sqs.get_queue_attributes(
+        QueueUrl=queue_url,
+        AttributeNames=['ApproximateNumberOfMessages', 'ApproximateNumberOfMessagesNotVisible']
+    )
+    visible = int(attrs['Attributes'].get('ApproximateNumberOfMessages', 0))
+    not_visible = int(attrs['Attributes'].get('ApproximateNumberOfMessagesNotVisible', 0))
+    return (visible + not_visible) == 0
+
+def send_batch_to_sqs(queue_url, files_batch, start_index):
+    for i, file in enumerate(files_batch):
+        s3_key = file["Key"]
+        file_name = s3_key.split('/')[-1]
+        file_id = start_index + i + 1
+
+        message_payload = {
+            "file_id": file_id,
+            "MessageId": f"PLACEHOLDER_ID_{file_id}",
+            "ReceiptHandle": f"PLACEHOLDER_RECEIPT_{file_id}",
+            "MD5OfBody": f"PLACEHOLDER_MD5_{file_id}",
+            "Body": file_name,
+            "Attributes": {}
+        }
+
+        sqs.send_message(
+            QueueUrl=queue_url,
+            MessageBody=str(message_payload)  # sent as string
+        )
+
+def lambda_handler(event, context):
+    # --- ENVIRONMENT VARIABLES ---
+    bucket_name = os.environ['PDF_BUCKET_NAME']
+    queue_url = os.environ['SQS_QUEUE_URL']
+    prefix = os.environ.get('PDF_OBJECT_PREFIX', '')
+
+    # Step 1: Check if SQS queue is empty
+    if not is_sqs_queue_empty(queue_url):
+        return {"status": "SQS not empty, skipping this run."}
+
+    # Step 2: List and filter files
+    files = list_filtered_pdf_files(bucket_name, prefix)
+
+    # Step 3: Sort files (newest first, based on LastModified)
+    sorted_files = sorted(files, key=lambda x: x["LastModified"], reverse=True)
+
+    # Step 4: Chunk and send to SQS
+    total_sent = 0
+    for i in range(0, len(sorted_files), CHUNK_SIZE):
+        batch = sorted_files[i:i + CHUNK_SIZE]
+        send_batch_to_sqs(queue_url, batch, start_index=i)
+        total_sent += len(batch)
+        break  # Send only one batch per run
+
+    return {
+        "status": "Batch sent",
+        "files_sent": total_sent
+    }
