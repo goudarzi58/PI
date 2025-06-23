@@ -632,3 +632,58 @@ def lambda_handler(event, context):
         "end_file_id": END_FILE_ID,
         "total_files_sent": sent_total
     }
+
+###################################################
+
+Lambda Function Description: Controlled S3-to-SQS Batch Messaging with Start and End File ID Control
+This AWS Lambda function enables controlled, resumable dispatching of PDF file metadata from S3 to SQS in batches. It is designed for high-volume processing use cases (millions of files) and provides fine-grained control over which subset of files to process and when to pause between chunks.
+
+Key Features
+Environment-driven control: The function uses constants like START_FILE_ID, END_FILE_ID, and CHUNK_SIZE to define which portion of the file list to process during each invocation.
+
+Skip-until-start logic: The function skips files until the current file_id reaches START_FILE_ID, then begins processing.
+
+Fixed-size chunks: After starting, it sends messages in batches of BATCH_SIZE (10), grouped into a single chunk of up to CHUNK_SIZE messages (e.g., 10,000–20,000), suitable for AWS Lambda's 15-minute execution limit.
+
+Queue-aware throttling: After each CHUNK_SIZE block, the function waits until the SQS queue is fully empty (is_sqs_queue_empty) before sending the next chunk. This protects downstream consumers from overload.
+
+Stateless execution: The function does not use deduplication or state persistence. It assumes the caller controls which ranges have already been processed (e.g., through monitoring or job scheduling).
+
+Example Use Case
+With:
+
+START_FILE_ID = 20000
+END_FILE_ID = 60000
+CHUNK_SIZE = 10000
+The Lambda function will behave as follows:
+
+Send file_ids 20000–29999 (10,000 messages) → then pause until SQS is empty
+
+Send file_ids 30000–39999 → wait again
+
+Send file_ids 40000–49999 → wait again
+
+Send file_ids 50000–60000 → complete
+
+Each step waits for SQS to fully drain before proceeding to the next chunk, ensuring safe, reliable batch handoff to consumers.
+
+🛠️ Summary of Functional Logic
+Step	Description
+START_FILE_ID	Skips files until this file_id is reached
+CHUNK_SIZE	Sends this many messages per chunk (safely fits within Lambda duration)
+END_FILE_ID	Final file_id to process before exiting
+is_sqs_queue_empty()	Ensures downstream consumers are ready before sending the next chunk
+Stateless	No deduplication or history tracking – external coordination recommended
+
+This function is ideal for pipeline chunking, parallelization, resumability, and safe SQS throttling during large-scale S3 data migrations or AI document processing workloads.
+
+Let me know if you'd like a version of this as a README.md or embedded in code as a docstring.
+
+
+
+
+
+
+
+
+
