@@ -492,3 +492,143 @@ def lambda_handler(event, context):
         "status": "Done",
         "total_files_sent": total_sent
     }
+
+############################################
+import os
+import time
+import boto3
+
+# AWS Clients
+s3 = boto3.client('s3')
+sqs = boto3.client('sqs')
+
+# Configuration Constants
+START_FILE_ID = 20000           # File index to start from (inclusive)
+END_FILE_ID = 50000             # File index to stop at (inclusive)
+CHUNK_SIZE = 10000              # Max messages per chunk (Lambda-safe)
+BATCH_SIZE = 10                 # Max messages per send_message_batch
+WAIT_TIME_SEC = 600             # Wait between chunks when SQS is not empty
+
+# File filters
+INCLUDE_PATTERN = 'UCC_BEST_OriginalFiling'
+EXCLUDE_PATTERNS = ['BEST_OriginalFilingNonRedacted', 'UCC_BEST_Acknowledgment']
+
+
+def list_filtered_pdf_files(bucket_name, prefix=''):
+    """
+    List and filter PDF files in S3 by filename pattern.
+    """
+    paginator = s3.get_paginator('list_objects_v2')
+    page_iterator = paginator.paginate(Bucket=bucket_name, Prefix=prefix)
+
+    filtered_files = []
+    for page in page_iterator:
+        for obj in page.get('Contents', []):
+            key = obj['Key']
+            if key.lower().endswith('.pdf') and INCLUDE_PATTERN in key:
+                if all(excl not in key for excl in EXCLUDE_PATTERNS):
+                    filtered_files.append({
+                        "Key": key,
+                        "LastModified": obj["LastModified"]
+                    })
+    return filtered_files
+
+
+def is_sqs_queue_empty(queue_url):
+    """
+    Check if SQS queue is empty.
+    """
+    attrs = sqs.get_queue_attributes(
+        QueueUrl=queue_url,
+        AttributeNames=['ApproximateNumberOfMessages', 'ApproximateNumberOfMessagesNotVisible']
+    )
+    visible = int(attrs['Attributes'].get('ApproximateNumberOfMessages', 0))
+    not_visible = int(attrs['Attributes'].get('ApproximateNumberOfMessagesNotVisible', 0))
+    return (visible + not_visible) == 0
+
+
+def send_chunk(files, queue_url, start_index, chunk_size):
+    """
+    Send a CHUNK_SIZE subset of files in batches of BATCH_SIZE starting from start_index.
+    Returns number of files actually sent.
+    """
+    sent_count = 0
+    total_files = len(files)
+
+    for i in range(start_index, min(total_files, start_index + chunk_size), BATCH_SIZE):
+        if sent_count >= chunk_size:
+            break
+
+        batch = []
+        for j in range(BATCH_SIZE):
+            current_index = i + j
+            if current_index >= total_files or sent_count >= chunk_size:
+                break
+
+            file = files[current_index]
+            file_id = current_index + 1  # 1-based file_id
+            file_name = file["Key"].split('/')[-1]
+
+            msg_body = {
+                "file_id": file_id,
+                "MessageId": f"PLACEHOLDER_ID_{file_id}",
+                "ReceiptHandle": f"PLACEHOLDER_RECEIPT_{file_id}",
+                "MD5OfBody": f"PLACEHOLDER_MD5_{file_id}",
+                "Body": file_name,
+                "Attributes": {}
+            }
+
+            batch.append({
+                'Id': str(j),
+                'MessageBody': str(msg_body)
+            })
+
+            sent_count += 1
+
+        if batch:
+            sqs.send_message_batch(QueueUrl=queue_url, Entries=batch)
+
+    return sent_count
+
+
+def lambda_handler(event, context):
+    """
+    Lambda entry point:
+    - Load files
+    - Start at START_FILE_ID, stop at END_FILE_ID
+    - Send in chunks (throttled by SQS emptiness)
+    """
+    bucket_name = os.environ['PDF_BUCKET_NAME']
+    queue_url = os.environ['SQS_QUEUE_URL']
+    prefix = os.environ.get('PDF_OBJECT_PREFIX', '')
+
+    # Step 1: Load and filter all files
+    all_files = list_filtered_pdf_files(bucket_name, prefix)
+    sorted_files = sorted(all_files, key=lambda x: x["LastModified"], reverse=True)
+
+    # Step 2: Enforce boundaries
+    total_files = len(sorted_files)
+    start_index = max(START_FILE_ID - 1, 0)
+    end_index = min(END_FILE_ID, total_files)
+
+    # Step 3: Send files in chunks
+    sent_total = 0
+    for i in range(start_index, end_index, CHUNK_SIZE):
+        print(f" Sending chunk from file_id={i+1} to file_id={min(i + CHUNK_SIZE, end_index)}...")
+
+        # If not the first chunk, wait for SQS to be empty
+        if sent_total > 0:
+            while not is_sqs_queue_empty(queue_url):
+                print(f"⏳ Waiting for SQS to empty before next chunk...")
+                time.sleep(WAIT_TIME_SEC)
+
+        sent = send_chunk(sorted_files, queue_url, i, CHUNK_SIZE)
+        sent_total += sent
+        print(f" Sent {sent} files in this chunk.")
+
+    return {
+        "status": "Completed",
+        "start_file_id": START_FILE_ID,
+        "end_file_id": END_FILE_ID,
+        "total_files_sent": sent_total
+    }
