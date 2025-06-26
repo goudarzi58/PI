@@ -1,0 +1,36 @@
+Certainly! Here are the 9 changes as bullet points:
+
+
+Replace Comprehend with Bedrock:
+Remove the initialization of the Comprehend client and add initialization for the Bedrock client.
+
+
+Update PII Detection Function:
+Replace all usage of comprehend.detect_pii_entities with Bedrock’s invoke_model method for PII detection, and adapt the payload/response parsing accordingly.
+
+
+Update PII Entities List Reference:
+Change all references from config['COMPREHEND']['PII_Entities_List'] to config['services']['bedrock']['PII_Entities_List'].
+
+
+Update S3 Bucket References:
+Change all S3 bucket references from config['S3'][...] to config['services']['s3'][...].
+
+
+Update HITL Review Config References:
+Change all references from config['HITL_Review'][...] to config['services']['HITL_Review'][...].
+
+Update DynamoDB Table and Key References:
+Change all hardcoded DynamoDB table and key references to use config['services']['dynamodb'][...] and dynamic key names from the config.
+
+
+Update SQS Config References:
+Change all SQS queue and batch size references from config['SQS'][...] to config['services']['sqs'][...].
+
+
+Remove All References to COMPREHEND:
+Remove any remaining code or config references to "COMPREHEND".
+
+
+Generalize Config Loading and Service References:
+Ensure all config and service references use the correct nested paths as per the updated config structure.
