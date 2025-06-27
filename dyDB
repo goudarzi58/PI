@@ -71,6 +71,7 @@ import os
 import boto3
 import json
 import pandas as pd
+import csv
 
 script_dir = os.path.dirname(os.path.abspath(__file__))
 config_path = os.path.join(script_dir, 'config_local_run.json')
@@ -91,13 +92,14 @@ services_config = config['services']
 
 
 # --- Connect to DynamoDB ---
-dynamodb = boto3.resource('dynamodb', aws_access_key_id=access_key, aws_secret_access_key=secret_key, region_name=region)
+dynamodb_resource = boto3.resource('dynamodb', aws_access_key_id=access_key, aws_secret_access_key=secret_key, region_name=region)
+dynamodb_client = boto3.client('dynamodb', aws_access_key_id=access_key, aws_secret_access_key=secret_key, region_name=region)
 # Access the DynamoDB table name
 table_name = config['services']['dynamodb']['Metadata_Table_Name']
 
 
 # Parameters
-TABLE_NAME = 'YourDynamoDBTableName'
+TABLE_NAME = table_name
 TARGET_PK = '2025-06-24'
 VALID_STATUSES = ['Redacted']
 VALID_TYPES = ['Sovereign', 'Non-Sovereign File']
@@ -145,7 +147,7 @@ def process_item(item):
     return []
 
 def query_and_export():
-    paginator = dynamodb.get_paginator('scan')
+    paginator = dynamodb_client.get_paginator('scan')
 
     with open(CSV_FILE, mode='w', newline='') as csvfile:
         fieldnames = ['File Name', 'File Name No .PDF', 'Redacted Text', 'Redacted Type', 'BBox', 'Textract Confidence Score']
@@ -171,16 +173,14 @@ def query_and_export():
                     writer.writerow(row)
 
     print(f"CSV Export Complete: {CSV_FILE}")
+# Define full CSV path relative to script directory
+CSV_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'redacted_files_output.csv')
 
 if __name__ == "__main__":
     query_and_export()
 
 #####################################################################################
 
-import os
-
-# Define full CSV path relative to script directory
-CSV_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'redacted_files_output.csv')
-
-print(f"Will save CSV to: {CSV_FILE}")
+T000000001860101V0000R000009700215758P00102D000000001860101UCC_BEST_OriginalFilingNonRedacted_1860101
+1860101.PDF
 
