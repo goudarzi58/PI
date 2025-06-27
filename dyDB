@@ -181,39 +181,19 @@ if __name__ == "__main__":
 
 #####################################################################################
 
-def process_item(item):
-    metadata = extract_metadata(item)
-    file_name = metadata.get('file_name', '')
-    file_name_no_pdf = f"{file_name.split('_')[-1]}"
+for page in paginator.paginate(
+    TableName=TABLE_NAME,
+    FilterExpression='#ft IN (:sovereign, :nsovereign) AND #st = :status',
+    ExpressionAttributeValues={
+        ':sovereign': {'S': 'Sovereign'},
+        ':nsovereign': {'S': 'Non-Sovereign File'},
+        ':status': {'S': 'Redacted'}
+    },
+    ExpressionAttributeNames={
+        '#ft': 'file_type',
+        '#st': 'Status'
+    }
+):
 
-    file_type = item.get('file_type', {}).get('S', '').strip('"')
-
-    if file_type == 'Sovereign':
-        return [{
-            'File Name': file_name,
-            'File Name No .PDF': file_name_no_pdf,
-            'Redacted Text': 'Sovereign',
-            'Redacted Type': 'Sovereign',
-            'BBox': 'Sovereign',
-            'Textract Confidence Score': 0
-        }]
-    
-    elif file_type == 'Non-Sovereign File':
-        pages = metadata.get('pages', [])
-        results = []
-        for page in pages:
-            for _, entities in page.items():
-                for ent in entities:
-                    results.append({
-                        'File Name': file_name,
-                        'File Name No .PDF': file_name_no_pdf,
-                        'Redacted Text': ent.get('text', ''),
-                        'Redacted Type': ent.get('Entity Type', ''),
-                        'BBox': ent.get('bbox', ''),
-                        'Textract Confidence Score': ent.get('textract_confidence_score', 0)
-                    })
-        return results
-
-    return []
 
 
