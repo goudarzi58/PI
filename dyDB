@@ -153,3 +153,11 @@ def query_and_export():
 if __name__ == "__main__":
     query_and_export()
 
+#####################################################################################
+
+Traceback (most recent call last):
+  File "c:/Users/ABGOUDARZI/OneDrive - Deloitte (O365D)/Documents/Client_____Projects/TX SOS/Tasks/Code_sos/VC_DynamoDB.py", line 107, in <module>
+    query_and_export()
+  File "c:/Users/ABGOUDARZI/OneDrive - Deloitte (O365D)/Documents/Client_____Projects/TX SOS/Tasks/Code_sos/VC_DynamoDB.py", line 79, in query_and_export
+    paginator = dynamodb.get_paginator('scan')
+AttributeError: 'dynamodb.ServiceResource' object has no attribute 'get_paginator'
