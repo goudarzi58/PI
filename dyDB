@@ -181,19 +181,54 @@ if __name__ == "__main__":
 
 #####################################################################################
 
-for page in paginator.paginate(
-    TableName=TABLE_NAME,
-    FilterExpression='#ft IN (:sovereign, :nsovereign) AND #st = :status',
-    ExpressionAttributeValues={
-        ':sovereign': {'S': 'Sovereign'},
-        ':nsovereign': {'S': 'Non-Sovereign File'},
-        ':status': {'S': 'Redacted'}
-    },
-    ExpressionAttributeNames={
-        '#ft': 'file_type',
-        '#st': 'Status'
-    }
-):
+def process_item(item):
+    metadata = extract_metadata(item)
+    file_name = metadata.get('file_name', '')
+    file_name_no_pdf = f"{file_name.split('_')[-1]}"
+
+    file_type = item.get('file_type', {}).get('S', '').strip('"')
+    status = item.get('Status', {}).get('S', '')
+
+    # ✅ Case 1: Sovereign + Manual Review
+    if file_type == 'Sovereign' and status == 'Manual Review':
+        return [{
+            'File Name': file_name,
+            'File Name No .PDF': file_name_no_pdf,
+            'Redacted Text': 'Sovereign',
+            'Redacted Type': 'Sovereign',
+            'BBox': 'Sovereign',
+            'Textract Confidence Score': 0
+        }]
+
+    # ✅ Case 2: Non-Sovereign File + Redacted
+    if file_type == 'Non-Sovereign File' and status == 'Redacted':
+        pages = metadata.get('pages', [])
+        results = []
+        for page in pages:
+            for _, entities in page.items():
+                for ent in entities:
+                    results.append({
+                        'File Name': file_name,
+                        'File Name No .PDF': file_name_no_pdf,
+                        'Redacted Text': ent.get('text', ''),
+                        'Redacted Type': ent.get('Entity Type', ''),
+                        'BBox': ent.get('bbox', ''),
+                        'Textract Confidence Score': ent.get('textract_confidence_score', 0)
+                    })
+        return results
+
+    #  Skip all other combinations
+    return []
+#######################################
+
+FilterExpression='#st = :status1 OR #st = :status2',
+ExpressionAttributeValues={
+    ':status1': {'S': 'Redacted'},
+    ':status2': {'S': 'Manual Review'}
+},
+ExpressionAttributeNames={
+    '#st': 'Status'
+}
 
 
 
