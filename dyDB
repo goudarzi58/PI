@@ -177,21 +177,10 @@ if __name__ == "__main__":
 
 #####################################################################################
 
-Traceback (most recent call last):
-  File "c:/Users/ABGOUDARZI/OneDrive - Deloitte (O365D)/Documents/Client_____Projects/TX SOS/Tasks/Code_sos/VC_DynamoDB.py", line 109, in <module>
-    query_and_export()
-  File "c:/Users/ABGOUDARZI/OneDrive - Deloitte (O365D)/Documents/Client_____Projects/TX SOS/Tasks/Code_sos/VC_DynamoDB.py", line 88, in query_and_export
-    for page in paginator.paginate(
-  File "C:\Users\ABGOUDARZI\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.8_qbz5n2kfra8p0\LocalCache\local-packages\Python38\site-packages\botocore\paginate.py", line 272, in __iter__
-    response = self._make_request(current_kwargs)
-  File "C:\Users\ABGOUDARZI\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.8_qbz5n2kfra8p0\LocalCache\local-packages\Python38\site-packages\botocore\context.py", line 124, in wrapper
-    return func(*args, **kwargs)
-  File "C:\Users\ABGOUDARZI\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.8_qbz5n2kfra8p0\LocalCache\local-packages\Python38\site-packages\botocore\paginate.py", line 361, in _make_request
-    return self._method(**current_kwargs)
-  File "C:\Users\ABGOUDARZI\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.8_qbz5n2kfra8p0\LocalCache\local-packages\Python38\site-packages\botocore\client.py", line 570, in _api_call
-    return self._make_api_call(operation_name, kwargs)
-  File "C:\Users\ABGOUDARZI\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.8_qbz5n2kfra8p0\LocalCache\local-packages\Python38\site-packages\botocore\context.py", line 124, in wrapper
-    return func(*args, **kwargs)
-  File "C:\Users\ABGOUDARZI\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.8_qbz5n2kfra8p0\LocalCache\local-packages\Python38\site-packages\botocore\client.py", line 1031, in _make_api_call
-    raise error_class(parsed_response, operation_name)
-botocore.errorfactory.ResourceNotFoundException: An error occurred (ResourceNotFoundException) when calling the Scan operation: Requested resource not found
+import os
+
+# Define full CSV path relative to script directory
+CSV_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'redacted_files_output.csv')
+
+print(f"Will save CSV to: {CSV_FILE}")
+
