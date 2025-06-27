@@ -40,6 +40,14 @@ Extracts key fields
 
 Exports the result to Excel using pandas
 ######################
+working with DynamoDB low-level response format, where each field includes its type ("S" for string, etc.).
+
+The ObjectKey value is a JSON string nested inside a "S" key, so you must:
+
+Access each attribute via .get("S")
+
+Use json.loads() on ObjectKey['S']
+######################
 
 import boto3
 import json
@@ -51,53 +59,55 @@ secret_key = 'YOUR_SECRET_KEY'
 region_name = 'us-east-1'
 table_name = 'YourDynamoDBTableName'
 
-# Connect to DynamoDB
-dynamodb = boto3.resource(
+# Initialize DynamoDB client
+dynamodb = boto3.client(
     'dynamodb',
     aws_access_key_id=access_key,
     aws_secret_access_key=secret_key,
     region_name=region_name
 )
 
-table = dynamodb.Table(table_name)
+# Scan the table
+response = dynamodb.scan(TableName=table_name)
+items = response.get('Items', [])
 
-# Fetch all items
-items = []
-response = table.scan()
-items.extend(response.get('Items', []))
-while 'LastEvaluatedKey' in response:
-    response = table.scan(ExclusiveStartKey=response['LastEvaluatedKey'])
-    items.extend(response.get('Items', []))
-
-# Parse and extract relevant data from ObjectKey JSON
+# Store parsed data
 parsed_records = []
+
 for item in items:
     try:
-        object_key_data = json.loads(item['ObjectKey'])  # Parse JSON from string
-        for record in object_key_data['Records']:
-            s3_info = record['s3']
+        # Extract values from low-level format
+        pk = item.get('pk', {}).get('S')
+        jobid = item.get('jobid', {}).get('S')
+        status = item.get('Status', {}).get('S')
+        status_message = item.get('StatusMessage', {}).get('S')
+        object_key_str = item.get('ObjectKey', {}).get('S')
+
+        # Parse ObjectKey JSON
+        object_key_json = json.loads(object_key_str)
+
+        for record in object_key_json.get('Records', []):
+            s3_info = record.get('s3', {})
             parsed_records.append({
-                'pk': item.get('pk'),
-                'jobid': item.get('jobid'),
-                'Status': item.get('Status'),
-                'StatusMessage': item.get('StatusMessage'),
+                'pk': pk,
+                'jobid': jobid,
+                'Status': status,
+                'StatusMessage': status_message,
                 'eventTime': record.get('eventTime'),
                 'eventName': record.get('eventName'),
-                'bucketName': s3_info['bucket']['name'],
-                'objectKey': s3_info['object']['key'],
-                'objectSize': s3_info['object']['size'],
-                'user': record['userIdentity']['principalId'],
-                'sourceIP': record['requestParameters']['sourceIPAddress']
+                'bucketName': s3_info.get('bucket', {}).get('name'),
+                'objectKey': s3_info.get('object', {}).get('key'),
+                'objectSize': s3_info.get('object', {}).get('size'),
+                'user': record.get('userIdentity', {}).get('principalId'),
+                'sourceIP': record.get('requestParameters', {}).get('sourceIPAddress')
             })
-    except Exception as e:
-        print(f"Error parsing item: {item.get('jobid')}, reason: {e}")
 
-# Convert to DataFrame
-df = pd.DataFrame(parsed_records)
+    except Exception as e:
+        print(f"Error parsing item with jobid={item.get('jobid', {}).get('S')}: {e}")
 
 # Export to Excel
-output_file = 'dynamodb_objectkey_parsed.xlsx'
+df = pd.DataFrame(parsed_records)
+output_file = 'dynamodb_parsed_records.xlsx'
 df.to_excel(output_file, index=False)
 
-print(f"Excel file created: {output_file}")
-
+print(f"Excel created: {output_file}")
