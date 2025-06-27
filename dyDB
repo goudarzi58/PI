@@ -70,117 +70,41 @@ Use json.loads() on ObjectKey['S']
 import os
 import boto3
 import json
-import pandas as pd
 import csv
 
+# --- Setup Paths ---
 script_dir = os.path.dirname(os.path.abspath(__file__))
 config_path = os.path.join(script_dir, 'config_local_run.json')
+CSV_FILE = os.path.join(script_dir, 'redacted_files_output.csv')
 
 # --- Load Config ---
 with open(config_path, 'r') as f:
     config = json.load(f)
 
-    
-# --- Extract AWS config ---
-
+# --- Extract AWS Config ---
 access_key = config['aws']['access_key']
 secret_key = config['aws']['secret_key']
 region = config['aws']['region']
-services_config = config['services']
-
-
-
-
-# --- Connect to DynamoDB ---
-dynamodb_resource = boto3.resource('dynamodb', aws_access_key_id=access_key, aws_secret_access_key=secret_key, region_name=region)
-dynamodb_client = boto3.client('dynamodb', aws_access_key_id=access_key, aws_secret_access_key=secret_key, region_name=region)
-# Access the DynamoDB table name
 table_name = config['services']['dynamodb']['Metadata_Table_Name']
 
+# --- Connect to DynamoDB ---
+dynamodb_client = boto3.client('dynamodb',
+    aws_access_key_id=access_key,
+    aws_secret_access_key=secret_key,
+    region_name=region
+)
 
-# Parameters
-TABLE_NAME = table_name
+# --- Control whether to filter by partition key ---
+USE_TARGET_PK = True
 TARGET_PK = '2025-06-24'
-VALID_STATUSES = ['Redacted']
-VALID_TYPES = ['Sovereign', 'Non-Sovereign File']
+TABLE_NAME = table_name
 
-# Output CSV file
-CSV_FILE = 'redacted_files_output.csv'
-
+# --- Extract Metadata JSON ---
 def extract_metadata(item):
     metadata_str = item.get('Metadata', {}).get('S', '{}')
     return json.loads(metadata_str)
 
-def process_item(item):
-    metadata = extract_metadata(item)
-    file_name = metadata.get('file_name', '')
-    file_name_no_pdf = file_name.replace('.PDF', '')
-
-    file_type = item.get('file_type', {}).get('S', '').strip('"')
-
-    if file_type == 'Sovereign':
-        return [{
-            'File Name': file_name,
-            'File Name No .PDF': file_name_no_pdf,
-            'Redacted Text': 'Sovereign',
-            'Redacted Type': 'Sovereign',
-            'BBox': 'Sovereign',
-            'Textract Confidence Score': 0
-        }]
-    
-    elif file_type == 'Non-Sovereign File':
-        pages = metadata.get('pages', [])
-        results = []
-        for page in pages:
-            for _, entities in page.items():
-                for ent in entities:
-                    results.append({
-                        'File Name': file_name,
-                        'File Name No .PDF': file_name_no_pdf,
-                        'Redacted Text': ent.get('text', ''),
-                        'Redacted Type': ent.get('Entity Type', ''),
-                        'BBox': ent.get('bbox', ''),
-                        'Textract Confidence Score': ent.get('textract_confidence_score', 0)
-                    })
-        return results
-
-    return []
-
-def query_and_export():
-    paginator = dynamodb_client.get_paginator('scan')
-
-    with open(CSV_FILE, mode='w', newline='') as csvfile:
-        fieldnames = ['File Name', 'File Name No .PDF', 'Redacted Text', 'Redacted Type', 'BBox', 'Textract Confidence Score']
-        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
-        writer.writeheader()
-
-        for page in paginator.paginate(
-            TableName=TABLE_NAME,
-            FilterExpression='pk = :pkval AND #ft IN (:sovereign, :nsovereign) AND #st IN (:status)',
-            ExpressionAttributeValues={
-                ':pkval': {'S': TARGET_PK},
-                ':sovereign': {'S': 'Sovereign'},
-                ':nsovereign': {'S': '\"Non-Sovereign File\"'},
-                ':status': {'S': 'Redacted'}
-            },
-            ExpressionAttributeNames={
-                '#ft': 'file_type',
-                '#st': 'Status'
-            }
-        ):
-            for item in page.get('Items', []):
-                for row in process_item(item):
-                    writer.writerow(row)
-
-    print(f"CSV Export Complete: {CSV_FILE}")
-# Define full CSV path relative to script directory
-CSV_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'redacted_files_output.csv')
-
-if __name__ == "__main__":
-    query_and_export()
-
-#####################################################################################
-
+# --- Process Item Based on File Type and Status ---
 def process_item(item):
     metadata = extract_metadata(item)
     file_name = metadata.get('file_name', '')
@@ -189,7 +113,7 @@ def process_item(item):
     file_type = item.get('file_type', {}).get('S', '').strip('"')
     status = item.get('Status', {}).get('S', '')
 
-    # ✅ Case 1: Sovereign + Manual Review
+    # Case 1: Sovereign + Manual Review
     if file_type == 'Sovereign' and status == 'Manual Review':
         return [{
             'File Name': file_name,
@@ -200,7 +124,7 @@ def process_item(item):
             'Textract Confidence Score': 0
         }]
 
-    # ✅ Case 2: Non-Sovereign File + Redacted
+    # Case 2: Non-Sovereign File + Redacted
     if file_type == 'Non-Sovereign File' and status == 'Redacted':
         pages = metadata.get('pages', [])
         results = []
@@ -217,18 +141,47 @@ def process_item(item):
                     })
         return results
 
-    #  Skip all other combinations
+    # Skip other combinations
     return []
-#######################################
 
-FilterExpression='#st = :status1 OR #st = :status2',
-ExpressionAttributeValues={
-    ':status1': {'S': 'Redacted'},
-    ':status2': {'S': 'Manual Review'}
-},
-ExpressionAttributeNames={
-    '#st': 'Status'
-}
+# --- Query and Export Function ---
+def query_and_export():
+    paginator = dynamodb_client.get_paginator('scan')
 
+    # Build filter and expression values
+    if USE_TARGET_PK:
+        filter_expr = '(#st = :status1 OR #st = :status2) AND pk = :pkval'
+        expr_values = {
+            ':status1': {'S': 'Redacted'},
+            ':status2': {'S': 'Manual Review'},
+            ':pkval': {'S': TARGET_PK}
+        }
+    else:
+        filter_expr = '#st = :status1 OR #st = :status2'
+        expr_values = {
+            ':status1': {'S': 'Redacted'},
+            ':status2': {'S': 'Manual Review'}
+        }
 
+    # Begin writing to CSV
+    with open(CSV_FILE, mode='w', newline='') as csvfile:
+        fieldnames = ['File Name', 'File Name No .PDF', 'Redacted Text', 'Redacted Type', 'BBox', 'Textract Confidence Score']
+        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+        writer.writeheader()
 
+        for page in paginator.paginate(
+            TableName=TABLE_NAME,
+            FilterExpression=filter_expr,
+            ExpressionAttributeValues=expr_values,
+            ExpressionAttributeNames={'#st': 'Status'}
+        ):
+            items = page.get('Items', [])
+            for item in items:
+                for row in process_item(item):
+                    writer.writerow(row)
+
+    print(f" CSV Export Complete: {CSV_FILE}")
+
+# --- Run ---
+if __name__ == "__main__":
+    query_and_export()
