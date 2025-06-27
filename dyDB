@@ -177,9 +177,12 @@ if __name__ == "__main__":
 
 #####################################################################################
 
-Traceback (most recent call last):
-  File "c:/Users/ABGOUDARZI/OneDrive - Deloitte (O365D)/Documents/Client_____Projects/TX SOS/Tasks/Code_sos/VC_DynamoDB.py", line 107, in <module>
-    query_and_export()
-  File "c:/Users/ABGOUDARZI/OneDrive - Deloitte (O365D)/Documents/Client_____Projects/TX SOS/Tasks/Code_sos/VC_DynamoDB.py", line 79, in query_and_export
-    paginator = dynamodb.get_paginator('scan')
-AttributeError: 'dynamodb.ServiceResource' object has no attribute 'get_paginator'
+# --- Connect to DynamoDB ---
+dynamodb_resource = boto3.resource('dynamodb', aws_access_key_id=access_key, aws_secret_access_key=secret_key, region_name=region)
+dynamodb_client = boto3.client('dynamodb', aws_access_key_id=access_key, aws_secret_access_key=secret_key, region_name=region)
+
+...
+
+def query_and_export():
+    paginator = dynamodb_client.get_paginator('scan')  # <-- Fixed line
+    ...
