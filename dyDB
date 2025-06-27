@@ -189,3 +189,26 @@ def query_and_export():
 # --- Run ---
 if __name__ == "__main__":
     query_and_export()
+
+##################################
+File Name	File Name No .PDF	Redacted Text	Redacted Type	BBox	Textract Confidence Score
+T000000001860101V0000R000009700215758P00102D000000001860101UCC_BEST_OriginalFilingNonRedacted_1860101.PDF	1860101.PDF	451-52-6109	Social Security Number	[97, 612, 215, 628]	99.85
+T000000001860101V0000R000009700215758P00102D000000001860101UCC_BEST_OriginalFilingNonRedacted_1860101.PDF	1860101.PDF	451-52-6109	Social Security Number	[97, 612, 215, 628]	99.85
+T000000001860101V0000R000009700215758P00102D000000001860101UCC_BEST_OriginalFilingNonRedacted_1860101.PDF	1860101.PDF	451-52-6109	Social Security Number	[97, 612, 215, 628]	99.85
+
+#####################################
+🔍 Scanned page: 12 items
+🧪 Processing file:  | type=Sovereign File, status=Manual Review
+🧪 Processing file:  | type=Sovereign File, status=Manual Review
+🧪 Processing file:  | type=Sovereign File, status=Manual Review
+🧪 Processing file:  | type=Sovereign File, status=Manual Review
+🧪 Processing file: T000000001860101V0000R000009700215758P00102D000000001860101UCC_BEST_OriginalFilingNonRedacted_1860101.PDF | type=Non-Sovereign File, status=Redacted
+🧪 Processing file:  | type=Sovereign File, status=Manual Review
+🧪 Processing file: T000000001860101V0000R000009700215758P00102D000000001860101UCC_BEST_OriginalFilingNonRedacted_1860101.PDF | type=Non-Sovereign File, status=Redacted
+🧪 Processing file: T000591995700024V0000R000150004857545P00092D000591995700024UCC_BEST_OriginalFiling_591995700026.PDF.pdf | type=Non-Sovereign File, status=Redacted
+🧪 Processing file:  | type=Sovereign File, status=Manual Review
+🧪 Processing file:  | type=Sovereign File, status=Manual Review
+🧪 Processing file:  | type=Sovereign File, status=Manual Review
+🧪 Processing file: T000000001860101V0000R000009700215758P00102D000000001860101UCC_BEST_OriginalFilingNonRedacted_1860101.PDF | type=Non-Sovereign File, status=Redacted
+
+ CSV Export Complete: c:\Users\ABGOUDARZI\OneDrive - Deloitte (O365D)\Documents\Client_____Projects\TX SOS\Tasks\Code_sos\redacted_files_output.csv
