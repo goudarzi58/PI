@@ -95,7 +95,7 @@ dynamodb_client = boto3.client('dynamodb',
 )
 
 # --- Parameters ---
-USE_TARGET_PK = True   # Toggle to False to scan all PKs
+USE_TARGET_PK = True  # Set to False to scan entire table
 TARGET_PK = '2025-06-24'
 TABLE_NAME = table_name
 
@@ -107,7 +107,7 @@ def extract_metadata(item):
 # --- Process Item Based on File Type and Status ---
 def process_item(item):
     metadata = extract_metadata(item)
-    file_name = metadata.get('file_name', '')
+    file_name = metadata.get('file_name', '') or item.get('ObjectKey', {}).get('S', '')
     file_name_no_pdf = f"{file_name.split('_')[-1]}"
 
     file_type = item.get('file_type', {}).get('S', '').strip('"')
@@ -115,8 +115,8 @@ def process_item(item):
 
     print(f"🧪 Processing file: {file_name} | type={file_type}, status={status}")
 
-    # Case 1: Sovereign + Manual Review
-    if file_type == 'Sovereign' and status == 'Manual Review':
+    # ✅ Case 1: Sovereign File + Manual Review
+    if file_type in ['Sovereign', 'Sovereign File'] and status == 'Manual Review':
         return [{
             'File Name': file_name,
             'File Name No .PDF': file_name_no_pdf,
@@ -126,13 +126,19 @@ def process_item(item):
             'Textract Confidence Score': 0
         }]
 
-    # Case 2: Non-Sovereign File + Redacted
+    # ✅ Case 2: Non-Sovereign File + Redacted
     if file_type == 'Non-Sovereign File' and status == 'Redacted':
         pages = metadata.get('pages', [])
         results = []
+        seen = set()
+
         for page in pages:
             for _, entities in page.items():
                 for ent in entities:
+                    key = (ent.get('text', ''), str(ent.get('bbox', '')))
+                    if key in seen:
+                        continue
+                    seen.add(key)
                     results.append({
                         'File Name': file_name,
                         'File Name No .PDF': file_name_no_pdf,
@@ -143,13 +149,14 @@ def process_item(item):
                     })
         return results
 
-    # Skip other combinations
+    # ❌ Skip all other combinations
     return []
 
 # --- Query and Export ---
 def query_and_export():
     paginator = dynamodb_client.get_paginator('scan')
 
+    # Build filters based on pk flag
     if USE_TARGET_PK:
         filter_expr = '(#st = :status1 OR #st = :status2) AND #pk = :pkval'
         expr_values = {
@@ -166,6 +173,7 @@ def query_and_export():
         }
         expr_names = {'#st': 'Status'}
 
+    # Write to CSV
     with open(CSV_FILE, mode='w', newline='') as csvfile:
         fieldnames = ['File Name', 'File Name No .PDF', 'Redacted Text', 'Redacted Type', 'BBox', 'Textract Confidence Score']
         writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
@@ -184,31 +192,8 @@ def query_and_export():
                 for row in process_item(item):
                     writer.writerow(row)
 
-    print(f"\n CSV Export Complete: {CSV_FILE}")
+    print(f"\n✅ CSV Export Complete: {CSV_FILE}")
 
 # --- Run ---
 if __name__ == "__main__":
     query_and_export()
-
-##################################
-File Name	File Name No .PDF	Redacted Text	Redacted Type	BBox	Textract Confidence Score
-T000000001860101V0000R000009700215758P00102D000000001860101UCC_BEST_OriginalFilingNonRedacted_1860101.PDF	1860101.PDF	451-52-6109	Social Security Number	[97, 612, 215, 628]	99.85
-T000000001860101V0000R000009700215758P00102D000000001860101UCC_BEST_OriginalFilingNonRedacted_1860101.PDF	1860101.PDF	451-52-6109	Social Security Number	[97, 612, 215, 628]	99.85
-T000000001860101V0000R000009700215758P00102D000000001860101UCC_BEST_OriginalFilingNonRedacted_1860101.PDF	1860101.PDF	451-52-6109	Social Security Number	[97, 612, 215, 628]	99.85
-
-#####################################
-🔍 Scanned page: 12 items
-🧪 Processing file:  | type=Sovereign File, status=Manual Review
-🧪 Processing file:  | type=Sovereign File, status=Manual Review
-🧪 Processing file:  | type=Sovereign File, status=Manual Review
-🧪 Processing file:  | type=Sovereign File, status=Manual Review
-🧪 Processing file: T000000001860101V0000R000009700215758P00102D000000001860101UCC_BEST_OriginalFilingNonRedacted_1860101.PDF | type=Non-Sovereign File, status=Redacted
-🧪 Processing file:  | type=Sovereign File, status=Manual Review
-🧪 Processing file: T000000001860101V0000R000009700215758P00102D000000001860101UCC_BEST_OriginalFilingNonRedacted_1860101.PDF | type=Non-Sovereign File, status=Redacted
-🧪 Processing file: T000591995700024V0000R000150004857545P00092D000591995700024UCC_BEST_OriginalFiling_591995700026.PDF.pdf | type=Non-Sovereign File, status=Redacted
-🧪 Processing file:  | type=Sovereign File, status=Manual Review
-🧪 Processing file:  | type=Sovereign File, status=Manual Review
-🧪 Processing file:  | type=Sovereign File, status=Manual Review
-🧪 Processing file: T000000001860101V0000R000009700215758P00102D000000001860101UCC_BEST_OriginalFilingNonRedacted_1860101.PDF | type=Non-Sovereign File, status=Redacted
-
- CSV Export Complete: c:\Users\ABGOUDARZI\OneDrive - Deloitte (O365D)\Documents\Client_____Projects\TX SOS\Tasks\Code_sos\redacted_files_output.csv
