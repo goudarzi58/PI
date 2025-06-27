@@ -94,8 +94,8 @@ dynamodb_client = boto3.client('dynamodb',
     region_name=region
 )
 
-# --- Control whether to filter by partition key ---
-USE_TARGET_PK = True
+# --- Parameters ---
+USE_TARGET_PK = True   # Toggle to False to scan all PKs
 TARGET_PK = '2025-06-24'
 TABLE_NAME = table_name
 
@@ -112,6 +112,8 @@ def process_item(item):
 
     file_type = item.get('file_type', {}).get('S', '').strip('"')
     status = item.get('Status', {}).get('S', '')
+
+    print(f"🧪 Processing file: {file_name} | type={file_type}, status={status}")
 
     # Case 1: Sovereign + Manual Review
     if file_type == 'Sovereign' and status == 'Manual Review':
@@ -144,26 +146,26 @@ def process_item(item):
     # Skip other combinations
     return []
 
-# --- Query and Export Function ---
+# --- Query and Export ---
 def query_and_export():
     paginator = dynamodb_client.get_paginator('scan')
 
-    # Build filter and expression values
     if USE_TARGET_PK:
-        filter_expr = '(#st = :status1 OR #st = :status2) AND pk = :pkval'
+        filter_expr = '(#st = :status1 OR #st = :status2) AND #pk = :pkval'
         expr_values = {
             ':status1': {'S': 'Redacted'},
             ':status2': {'S': 'Manual Review'},
             ':pkval': {'S': TARGET_PK}
         }
+        expr_names = {'#st': 'Status', '#pk': 'pk'}
     else:
         filter_expr = '#st = :status1 OR #st = :status2'
         expr_values = {
             ':status1': {'S': 'Redacted'},
             ':status2': {'S': 'Manual Review'}
         }
+        expr_names = {'#st': 'Status'}
 
-    # Begin writing to CSV
     with open(CSV_FILE, mode='w', newline='') as csvfile:
         fieldnames = ['File Name', 'File Name No .PDF', 'Redacted Text', 'Redacted Type', 'BBox', 'Textract Confidence Score']
         writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
@@ -173,14 +175,16 @@ def query_and_export():
             TableName=TABLE_NAME,
             FilterExpression=filter_expr,
             ExpressionAttributeValues=expr_values,
-            ExpressionAttributeNames={'#st': 'Status'}
+            ExpressionAttributeNames=expr_names
         ):
             items = page.get('Items', [])
+            print(f"🔍 Scanned page: {len(items)} items")
+
             for item in items:
                 for row in process_item(item):
                     writer.writerow(row)
 
-    print(f" CSV Export Complete: {CSV_FILE}")
+    print(f"\n CSV Export Complete: {CSV_FILE}")
 
 # --- Run ---
 if __name__ == "__main__":
