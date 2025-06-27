@@ -1,166 +1,104 @@
+Key Changes:
+Global config_path and output_file read from environment variables.
+
+Defaults with fallback for local testing (config_local_run.json).
+
+Ensured __file__ is referenced correctly.
+
+Fixed indentation, comments, and Python idioms (__name__ == "__main__").
+
+#------pdated Script:-----
+
+
 import os
-
 import time
-
 import boto3
-
 import json
 
-script_dir = os.path.dirname(os.path.abspath(file))
+# === Global Configuration ===
+script_dir = os.path.dirname(os.path.abspath(__file__))
+config_path = os.getenv('CONFIG_PATH', os.path.join(script_dir, 'config_local_run.json'))
+output_file = os.getenv('OUTPUT_FILE', os.path.join(script_dir, 'output.csv'))
 
-config_path = os.path.join(script_dir, 'config_local_run.json')
-
+# === Load Config ===
 with open(config_path, 'r') as f:
+    config = json.load(f)
 
-config = json.load(f)
-
---- AWS Prod access ---
+# === AWS Prod access ===
 access_key = config['aws_prod']['access_key_prod']
-
 secret_key = config['aws_prod']['secret_key_prod']
-
 REGION = config['aws_prod']['region_prod']
 
---- S3 Prod access ---
+# === S3 Prod access ===
 s3_source_bucket_prod = config['services']['s3_prod']['source_bucket_name_prod']
+s3 = boto3.client(
+    's3',
+    aws_access_key_id=access_key,
+    aws_secret_access_key=secret_key,
+    region_name=REGION,
+    verify=False
+)
 
-s3 = boto3.client('s3', aws_access_key_id=access_key, aws_secret_access_key=secret_key, region_name=REGION, verify=False)
-
-File filters
+# === File Filters ===
 INCLUDE_PATTERN = 'UCC_BEST_OriginalFiling'
-
 EXCLUDE_PATTERNS = ['BEST_OriginalFilingNonRedacted', 'UCC_BEST_Acknowledgment']
 
-def list_s3_files(bucket_name):
-
-response = s3.list_objects_v2(Bucket=bucket_name)
-
-files = []
-
-for i in response.get('Contents', []):
-
-if is_valid_file(i["Key"]) and len(files) <=3:
-
-#if is_valid_file(i["Key"]) and len(files) <=100000: #2nd Run
-
-files.append((i["Key"], i["LastModified"]))
-
-#files = files[50000:] # Remove the first 5 entries #2nd Run
-
-print(f"Total files after filtering: {len(files)}")
-
-return files
-
-#check if file is valid or not
-
+# === File Validity Check ===
 def is_valid_file(file_key):
+    """
+    Check if the file key matches the include pattern and does not match any exclude patterns.
+    """
+    if INCLUDE_PATTERN.lower() in file_key.lower():
+        for pattern in EXCLUDE_PATTERNS:
+            if pattern.lower() in file_key.lower():
+                return False
+        return True
+    return False
 
-"""
+# === List Files from S3 ===
+def list_s3_files(bucket_name):
+    response = s3.list_objects_v2(Bucket=bucket_name)
+    files = []
 
-Check if the file key matches the include pattern and does not match any exclude patterns.
+    for i in response.get('Contents', []):
+        if is_valid_file(i["Key"]) and len(files) <= 3:
+            files.append((i["Key"], i["LastModified"]))
 
-"""
+    print(f"Total files after filtering: {len(files)}")
+    return files
 
-if INCLUDE_PATTERN.lower() in file_key.lower():
-
-for pattern in EXCLUDE_PATTERNS:
-
-if pattern.lower() in file_key.lower():
-
-return False
-
-return True
-
-return False
-
-#sort files by last modified date and write to csv
-
+# === Write to CSV ===
 def write_files_to_csv(files, output_file):
+    files = sorted(files, key=lambda x: x[1], reverse=True)  # Sort by LastModified
+    print(f"Found {len(files)} valid files.")
 
-"""
+    with open(output_file, 'w', newline='') as f:
+        for file_key, last_modified in files:
+            f.write(f"{file_key},{last_modified}\n")
 
-Write the list of files to a CSV file.
-
-"""
-
-files = sorted(files, key=lambda x: x[1], reverse=True) # Sort by LastModified date
-
-print(f"Found {len(files)} valid files.")
-
-with open(output_file, 'w', newline='') as f:
-
-#f.write("FileName,LastModified\n")
-
-for file_key, last_modified in files:
-
-f.write(f"{file_key},{last_modified}\n")
-
+# === Main Function ===
 def main():
+    bucket_name = s3_source_bucket_prod
+    files = list_s3_files(bucket_name)
 
-#DEV
+    if not files:
+        print("No valid files found.")
+        return
 
-#bucket_name = "sos-appian-dev-pii-redaction-integration-rawpdfs-p0b8m7"
+    write_files_to_csv(files, output_file)
+    print(f"CSV file '{output_file}' created with {len(files)} entries.")
 
-#PROD
+if __name__ == '__main__':
+    main()
 
-bucket_name = s3_source_bucket_prod
+##################################################################################
+Environment Variable Setup for Docker
+Ensure your Docker container sets:
 
-output_file = "C:\Users\agoudarzi\Desktop\Dev\csv_file_for_lambda_from_prod.csv"
+dockerfile
 
-# List files in the S3 bucket
+ENV CONFIG_PATH=/app/config/config_prod.json
+ENV OUTPUT_FILE=/app/output/output_prod.csv
+Or in your docker run command:
 
-files = list_s3_files(bucket_name)
-
-if not files:
-
-print("No valid files found.")
-
-return
-
-# Write the files to a CSV file
-
-write_files_to_csv(files, output_file)
-
-print(f"CSV file '{output_file}' created with {len(files)} entries.")
-
-if name == 'main':
-
-main()
-
-###################################
-
-Set environment variables OUTPUT_FILE and CONFIG_PATH in the deployment environment.
-These can be set in:
-
-Docker container environment
-Cloud function configuration
-EC2 user data
-Orchestration tool (like Airflow, Jenkins, etc.)
-
-
-
-
-Summary Table
-
-
-
-Variable
-How to Set
-Where to Set
-
-
-
-
-output_file
-Environment variable
-Deployment environment
-
-
-config_path
-Environment variable
-Deployment environment
-
-
-
-
-This approach keeps your code portable and environment-agnostic, and lets the infra team control file locations without code changes.
+docker run -e CONFIG_PATH=/app/config/config_prod.json -e OUTPUT_FILE=/app/output/output_prod.csv my-container
