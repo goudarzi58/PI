@@ -1,5 +1,14 @@
+DynamoDB table with several columns, including:
 
+pk (String): This appears to be the partition key, which is a date format (e.g., "2025-06-24").
+file_type: This column contains strings representing the type of file, such as "Sovereign" or "Non-Sovereign".
+Metadata: This column seems to contain JSON-like data, possibly with details about the file.
+ObjectKey: This column contains identifiers for the objects, likely unique keys.
+Status: This column indicates the current status of the file, such as "Manual Review" or "Redacted".
+StatusMessage: This column provides additional information about the status, such as "File uploaded in ..." or "Successfully redacted".
 
+To filter the content of this table based on pk, file_type, and Status, you can use Python with the AWS SDK for Python (Boto3). Below is an example code snippet that demonstrates how to query the table:
+#################################################
 Attributes
 
 pk (Partition key): The value is 2025-02-12. This is likely used to uniquely identify items within the table.
@@ -9,23 +18,31 @@ Status: The value is Error, suggesting there was an issue with the process or op
 StatusMessage: The value is HITL_Review-Unknown file extension, indicating that the error might be related to a file with an unrecognized extension requiring human-in-the-loop (HITL) review.
 
 
-ObjectKey: json view
+{
   "pk": {
-    "S": "2025-02-12"
+    "S": "2025-06-24"
   },
   "jobid": {
-    "S": "jr_0056afbe-15b1-4cd9-9389-24c2ab1f3026"
+    "S": "jr_402edbbd-8410-42d1-8de9-da797dab8d0c"
+  },
+  "file_type": {
+    "S": "\"Non-Sovereign File\""
+  },
+  "Metadata": {
+    "S": "{\"file_name\": \"T000000001860101V0000R000009700215758P00102D000000001860101UCC_BEST_OriginalFilingNonRedacted_1860101.PDF\", \"partition_key\": \"2025-06-24\", \"sort_key\": \"jr_402edbbd-8410-42d1-8de9-da797dab8d0c\", \"pages\": [{\"1\": [{\"text\": \"451-52-6109\", \"Entity Type\": \"Social Security Number\", \"bbox\": [97, 612, 215, 628], \"textract_confidence_score\": 99.85, \"status\": \"redacted\"}]}]}"
   },
   "ObjectKey": {
-    "S": "{\"Records\":[{\"eventVersion\":\"2.1\",\"eventSource\":\"aws:s3\",\"awsRegion\":\"us-east-1\",\"eventTime\":\"2025-02-12T16:25:57.781Z\",\"eventName\":\"ObjectCreated:Put\",\"userIdentity\":{\"principalId\":\"AWS:AROASK5MCOA6UHGFVQXBV:bhyalamarthi@deloitte.com\"},\"requestParameters\":{\"sourceIPAddress\":\"136.226.12.212\"},\"responseElements\":{\"x-amz-request-id\":\"SPAA4BYG5AAHA81N\",\"x-amz-id-2\":\"guogulk71T1AfEjCgLGFH7j89NIntkxC+3wpYVwF705DQ3zWs4AnD2oEacWKiIU4FAEmQ8GkpANIqUa9y1iwtsUkRcr8lXA4\"},\"s3\":{\"s3SchemaVersion\":\"1.0\",\"configurationId\":\"LoadToQueue\",\"bucket\":{\"name\":\"sos-appian-dev-pii-redaction-rawpdfs-a3c2f4\",\"ownerIdentity\":{\"principalId\":\"A1N8VUOKXDPXES\"},\"arn\":\"arn:aws:s3:::sos-appian-dev-pii-redaction-rawpdfs-a3c2f4\"},\"object\":{\"key\":\"UCC/421386190004.pdf\",\"size\":219531,\"eTag\":\"8a3eb6897a0841287eda41d374e43e0b\",\"sequencer\":\"0067ACCB959992FC61\"}}}]}"
+    "S": "T000000001860101V0000R000009700215758P00102D000000001860101UCC_BEST_OriginalFilingNonRedacted_1860101.PDF"
   },
   "Status": {
-    "S": "Error"
+    "S": "Redacted"
   },
   "StatusMessage": {
-    "S": "HITL_Review-Unknown file extension"
+    "S": "Succesfully redacted and saved in S3"
   }
 }
+######################
+File Name, File Name No .PDF, Redacted Text, Redacted Type, BBox, Textract Confidence Score
 ######################
 Python Script Overview
 Below is a script that:
@@ -49,65 +66,3 @@ Access each attribute via .get("S")
 Use json.loads() on ObjectKey['S']
 ######################
 
-import boto3
-import json
-import pandas as pd
-
-# AWS Credentials and Config
-access_key = 'YOUR_ACCESS_KEY'
-secret_key = 'YOUR_SECRET_KEY'
-region_name = 'us-east-1'
-table_name = 'YourDynamoDBTableName'
-
-# Initialize DynamoDB client
-dynamodb = boto3.client(
-    'dynamodb',
-    aws_access_key_id=access_key,
-    aws_secret_access_key=secret_key,
-    region_name=region_name
-)
-
-# Scan the table
-response = dynamodb.scan(TableName=table_name)
-items = response.get('Items', [])
-
-# Store parsed data
-parsed_records = []
-
-for item in items:
-    try:
-        # Extract values from low-level format
-        pk = item.get('pk', {}).get('S')
-        jobid = item.get('jobid', {}).get('S')
-        status = item.get('Status', {}).get('S')
-        status_message = item.get('StatusMessage', {}).get('S')
-        object_key_str = item.get('ObjectKey', {}).get('S')
-
-        # Parse ObjectKey JSON
-        object_key_json = json.loads(object_key_str)
-
-        for record in object_key_json.get('Records', []):
-            s3_info = record.get('s3', {})
-            parsed_records.append({
-                'pk': pk,
-                'jobid': jobid,
-                'Status': status,
-                'StatusMessage': status_message,
-                'eventTime': record.get('eventTime'),
-                'eventName': record.get('eventName'),
-                'bucketName': s3_info.get('bucket', {}).get('name'),
-                'objectKey': s3_info.get('object', {}).get('key'),
-                'objectSize': s3_info.get('object', {}).get('size'),
-                'user': record.get('userIdentity', {}).get('principalId'),
-                'sourceIP': record.get('requestParameters', {}).get('sourceIPAddress')
-            })
-
-    except Exception as e:
-        print(f"Error parsing item with jobid={item.get('jobid', {}).get('S')}: {e}")
-
-# Export to Excel
-df = pd.DataFrame(parsed_records)
-output_file = 'dynamodb_parsed_records.xlsx'
-df.to_excel(output_file, index=False)
-
-print(f"Excel created: {output_file}")
