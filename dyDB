@@ -66,3 +66,90 @@ Access each attribute via .get("S")
 Use json.loads() on ObjectKey['S']
 ######################
 
+
+import boto3
+import json
+import csv
+
+# AWS config - you can set up via env vars or IAM role
+dynamodb = boto3.client('dynamodb', region_name='us-east-1')
+
+# Parameters
+TABLE_NAME = 'YourDynamoDBTableName'
+TARGET_PK = '2025-06-24'
+VALID_STATUSES = ['Redacted']
+VALID_TYPES = ['Sovereign', 'Non-Sovereign File']
+
+# Output CSV file
+CSV_FILE = 'redacted_files_output.csv'
+
+def extract_metadata(item):
+    metadata_str = item.get('Metadata', {}).get('S', '{}')
+    return json.loads(metadata_str)
+
+def process_item(item):
+    metadata = extract_metadata(item)
+    file_name = metadata.get('file_name', '')
+    file_name_no_pdf = file_name.replace('.PDF', '')
+
+    file_type = item.get('file_type', {}).get('S', '').strip('"')
+
+    if file_type == 'Sovereign':
+        return [{
+            'File Name': file_name,
+            'File Name No .PDF': file_name_no_pdf,
+            'Redacted Text': 'Sovereign',
+            'Redacted Type': 'Sovereign',
+            'BBox': 'Sovereign',
+            'Textract Confidence Score': 0
+        }]
+    
+    elif file_type == 'Non-Sovereign File':
+        pages = metadata.get('pages', [])
+        results = []
+        for page in pages:
+            for _, entities in page.items():
+                for ent in entities:
+                    results.append({
+                        'File Name': file_name,
+                        'File Name No .PDF': file_name_no_pdf,
+                        'Redacted Text': ent.get('text', ''),
+                        'Redacted Type': ent.get('Entity Type', ''),
+                        'BBox': ent.get('bbox', ''),
+                        'Textract Confidence Score': ent.get('textract_confidence_score', 0)
+                    })
+        return results
+
+    return []
+
+def query_and_export():
+    paginator = dynamodb.get_paginator('scan')
+
+    with open(CSV_FILE, mode='w', newline='') as csvfile:
+        fieldnames = ['File Name', 'File Name No .PDF', 'Redacted Text', 'Redacted Type', 'BBox', 'Textract Confidence Score']
+        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+        writer.writeheader()
+
+        for page in paginator.paginate(
+            TableName=TABLE_NAME,
+            FilterExpression='pk = :pkval AND #ft IN (:sovereign, :nsovereign) AND #st IN (:status)',
+            ExpressionAttributeValues={
+                ':pkval': {'S': TARGET_PK},
+                ':sovereign': {'S': 'Sovereign'},
+                ':nsovereign': {'S': '\"Non-Sovereign File\"'},
+                ':status': {'S': 'Redacted'}
+            },
+            ExpressionAttributeNames={
+                '#ft': 'file_type',
+                '#st': 'Status'
+            }
+        ):
+            for item in page.get('Items', []):
+                for row in process_item(item):
+                    writer.writerow(row)
+
+    print(f"✅ CSV Export Complete: {CSV_FILE}")
+
+if __name__ == "__main__":
+    query_and_export()
+
