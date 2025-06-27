@@ -67,12 +67,34 @@ Use json.loads() on ObjectKey['S']
 ######################
 
 
+import os
 import boto3
 import json
-import csv
+import pandas as pd
 
-# AWS config - you can set up via env vars or IAM role
-dynamodb = boto3.client('dynamodb', region_name='us-east-1')
+script_dir = os.path.dirname(os.path.abspath(__file__))
+config_path = os.path.join(script_dir, 'config_local_run.json')
+
+# --- Load Config ---
+with open(config_path, 'r') as f:
+    config = json.load(f)
+
+    
+# --- Extract AWS config ---
+
+access_key = config['aws']['access_key']
+secret_key = config['aws']['secret_key']
+region = config['aws']['region']
+services_config = config['services']
+
+
+
+
+# --- Connect to DynamoDB ---
+dynamodb = boto3.resource('dynamodb', aws_access_key_id=access_key, aws_secret_access_key=secret_key, region_name=region)
+# Access the DynamoDB table name
+table_name = config['services']['dynamodb']['Metadata_Table_Name']
+
 
 # Parameters
 TABLE_NAME = 'YourDynamoDBTableName'
@@ -148,7 +170,7 @@ def query_and_export():
                 for row in process_item(item):
                     writer.writerow(row)
 
-    print(f"✅ CSV Export Complete: {CSV_FILE}")
+    print(f"CSV Export Complete: {CSV_FILE}")
 
 if __name__ == "__main__":
     query_and_export()
