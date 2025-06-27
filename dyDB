@@ -11,3 +11,79 @@ StatusMessage: The value is HITL_Review-Unknown file extension, indicating that 
 
 ObjectKey: 
   {"Records":[{"eventVersion":"2.1","eventSource":"aws:s3","awsRegion":"us-east-1","eventTime":"2025-02-12T16:25:57.781Z","eventName":"ObjectCreated:Put","userIdentity":{"principalId":"AWS:AROASK5MCOA6UHGFVQXBV:bhyalamarthi@deloitte.com"},"requestParameters":{"sourceIPAddress":"136.226.12.212"},"responseElements":{"x-amz-request-id":"SPAA4BYG5AAHA81N","x-amz-id-2":"guogulk71T1AfEjCgLGFH7j89NIntkxC+3wpYVwF705DQ3zWs4AnD2oEacWKiIU4FAEmQ8GkpANIqUa9y1iwtsUkRcr8lXA4"},"s3":{"s3SchemaVersion":"1.0","configurationId":"LoadToQueue","bucket":{"name":"sos-appian-dev-pii-redaction-rawpdfs-a3c2f4","ownerIdentity":{"principalId":"A1N8VUOKXDPXES"},"arn":"arn:aws:s3:::sos-appian-dev-pii-redaction-rawpdfs-a3c2f4"},"object":{"key":"UCC/421386190004.pdf","size":219531,"eTag":"8a3eb6897a0841287eda41d374e43e0b","sequencer":"0067ACCB959992FC61"}}}]}
+
+######################
+Python Script Overview
+Below is a script that:
+
+Connects to DynamoDB using access_key / secret_key
+
+Scans the table
+
+Parses the ObjectKey field (which is a JSON string)
+
+Extracts key fields
+
+Exports the result to Excel using pandas
+######################
+
+import boto3
+import json
+import pandas as pd
+
+# AWS Credentials and Config
+access_key = 'YOUR_ACCESS_KEY'
+secret_key = 'YOUR_SECRET_KEY'
+region_name = 'us-east-1'
+table_name = 'YourDynamoDBTableName'
+
+# Connect to DynamoDB
+dynamodb = boto3.resource(
+    'dynamodb',
+    aws_access_key_id=access_key,
+    aws_secret_access_key=secret_key,
+    region_name=region_name
+)
+
+table = dynamodb.Table(table_name)
+
+# Fetch all items
+items = []
+response = table.scan()
+items.extend(response.get('Items', []))
+while 'LastEvaluatedKey' in response:
+    response = table.scan(ExclusiveStartKey=response['LastEvaluatedKey'])
+    items.extend(response.get('Items', []))
+
+# Parse and extract relevant data from ObjectKey JSON
+parsed_records = []
+for item in items:
+    try:
+        object_key_data = json.loads(item['ObjectKey'])  # Parse JSON from string
+        for record in object_key_data['Records']:
+            s3_info = record['s3']
+            parsed_records.append({
+                'pk': item.get('pk'),
+                'jobid': item.get('jobid'),
+                'Status': item.get('Status'),
+                'StatusMessage': item.get('StatusMessage'),
+                'eventTime': record.get('eventTime'),
+                'eventName': record.get('eventName'),
+                'bucketName': s3_info['bucket']['name'],
+                'objectKey': s3_info['object']['key'],
+                'objectSize': s3_info['object']['size'],
+                'user': record['userIdentity']['principalId'],
+                'sourceIP': record['requestParameters']['sourceIPAddress']
+            })
+    except Exception as e:
+        print(f"Error parsing item: {item.get('jobid')}, reason: {e}")
+
+# Convert to DataFrame
+df = pd.DataFrame(parsed_records)
+
+# Export to Excel
+output_file = 'dynamodb_objectkey_parsed.xlsx'
+df.to_excel(output_file, index=False)
+
+print(f"Excel file created: {output_file}")
+
