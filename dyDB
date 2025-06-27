@@ -186,3 +186,9 @@ dynamodb_client = boto3.client('dynamodb', aws_access_key_id=access_key, aws_sec
 def query_and_export():
     paginator = dynamodb_client.get_paginator('scan')  # <-- Fixed line
     ...
+
+###############################
+  File "c:/Users/ABGOUDARZI/OneDrive - Deloitte (O365D)/Documents/Client_____Projects/TX SOS/Tasks/Code_sos/VC_DynamoDB.py", line 82
+    with open(CSV_FILE, mode='w', newline='') as csvfile:
+    ^
+SyntaxError: invalid syntax
