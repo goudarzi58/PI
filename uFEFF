@@ -145,3 +145,12 @@ def process_messages():
 # ---------- Entry ----------
 if __name__ == "__main__":
     process_messages()
+
+################################
+
+Current working directory: C:\Users\ABGOUDARZI
+
+Reading messages from SQS Queue: https://sqs.us-east-1.amazonaws.com/160885272637/sos-appian-dev-pii-redaction-rawpdfs-w2j2r4
+ Error processing message: Expecting property name enclosed in double quotes: line 1 column 2 (char 1)
+ Error processing message: Expecting property name enclosed in double quotes: line 1 column 2 (char 1)
+PS C:\Users\ABGOUDARZI> 
