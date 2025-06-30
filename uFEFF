@@ -9,3 +9,138 @@ key = '/ufeffT000000000449534V0000R000007400006611P00102D000000000449534UCC_BEST
 
 
  
+#################
+
+import os
+import io
+import json
+from pydoc import text
+import fitz
+import uuid
+import boto3
+from pathlib import Path
+from datetime import datetime
+from botocore.exceptions import ClientError
+from PIL import Image, ImageDraw, ImageStat, ImageEnhance
+from textractcaller.t_call import call_textract, Textract_Types
+from textractoverlayer.t_overlay import DocumentDimensions, get_bounding_boxes
+from textractprettyprinter.t_pretty_print import Textract_Pretty_Print, get_string
+
+# ---------- #####  ---------
+
+#--local-
+import warnings
+warnings.filterwarnings('ignore')
+import os
+print("Current working directory:", os.getcwd())
+
+# ---------- #####  ---------
+script_dir = os.path.dirname(os.path.abspath(__file__))
+config_path = os.path.join(script_dir, 'config_local_run.json')
+
+with open(config_path, 'r') as f:
+    config = json.load(f)
+
+
+# --- Extract AWS config ---
+aws_config = config['aws']
+access_key = aws_config['access_key']
+secret_key = aws_config['secret_key']
+REGION = aws_config['region']
+services_config = config['services']
+
+#--prod--
+aws_config_prod = config['aws_prod']
+access_key_prod = aws_config_prod['access_key_prod']
+secret_key_prod = aws_config_prod['secret_key_prod']
+REGION_prod = aws_config_prod['region_prod']
+
+
+# --- S3 Buckets ---
+#s3_source_bucket = services_config['s3']['source_bucket_name']
+s3_redacted_bucket = services_config['s3']['redacted_bucket_name']
+s3_manual_review_bucket = services_config['s3']['manual_review_bucket']
+ 
+#--prod--
+s3_source_bucket_prod = services_config['s3_prod']['source_bucket_name_prod']
+  
+# --- SQS Queue Detail ---
+sqs_queue_url = services_config['sqs']['HITLReview_Queue']['Queue_URL']
+sqs_batch_size = services_config['sqs']['HITLReview_Queue']['Batch_Size']
+
+# --- Sovereign Variables ---
+sovereign_variables = services_config['sovereign']['sovereign_variables']
+
+# <<<<<<<  AWS Initialization with Exception Handling >>>>>>>
+try:
+    s3 = boto3.client('s3', aws_access_key_id=access_key, aws_secret_access_key=secret_key, region_name=REGION, verify=False)
+    s3_prod = boto3.client('s3', aws_access_key_id=access_key_prod, aws_secret_access_key=secret_key_prod, region_name=REGION, verify=False)
+    sqs = boto3.client('sqs', aws_access_key_id=access_key, aws_secret_access_key=secret_key, region_name=REGION, verify=False)
+
+except Exception as e:
+    logging.critical("Failed to initialize AWS clients", exc_info=True)
+    raise SystemExit("Terminating due to AWS initialization error.")
+ 
+
+# ---------- #####  ---------
+
+ 
+# Global Variables
+metadata_json = {}
+
+def read_file_from_s3(bucket_name, object_key):
+    try:
+        print("S3 bucket_name:", bucket_name)
+        print("File name:", object_key)
+
+        response = s3.get_object(Bucket=bucket_name, Key=object_key)
+        return response['Body'].read()
+    except ClientError as e:
+        print(f"Error reading file from S3: {e}")
+        raise
+
+def read_file_from_s3_prod(bucket_name, object_key):
+    try:
+        print("S3 bucket_name:", bucket_name)
+        print("File name:", object_key)
+
+        response = s3_prod.get_object(Bucket=bucket_name, Key=object_key)
+        return response['Body'].read()
+    except ClientError as e:
+        print(f"Error reading file from S3: {e}")
+        raise
+
+
+def read_message_from_queue(queueUrl, msg_count):
+    print(f"\nReading messages from SQS Queue: {queueUrl}")
+    messages = []
+    try:
+        response = sqs.receive_message(
+            QueueUrl = queueUrl,
+            MaxNumberOfMessages = msg_count,
+            WaitTimeSeconds = 10
+        )
+
+        if 'Messages' in response:
+            for message in response['Messages']:
+                messages.append({
+                    'Body': message['Body'],
+                    'ReceiptHandle': message['ReceiptHandle']
+                })
+            return messages
+        return None
+    except ClientError as e:
+        print(f"Error reading from SQS Queue: {e}")
+        raise
+    
+def delete_message_from_queue(queueUrl, message):
+    try:
+        response = sqs.delete_message(
+            QueueUrl = queueUrl,
+            ReceiptHandle = message['ReceiptHandle']
+        )
+        return "Successfully deleted the message from Queue"
+    except ClientError as e:
+        print(f"Error deleting message from SQS Queue: {e}")
+        raise
+
