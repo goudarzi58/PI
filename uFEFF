@@ -13,102 +13,57 @@ key = '/ufeffT000000000449534V0000R000007400006611P00102D000000000449534UCC_BEST
 
 
 import os
-import io
 import json
-from pydoc import text
-import uuid
+import logging
 import boto3
-from pathlib import Path
-from datetime import datetime
+import warnings
 from botocore.exceptions import ClientError
 
-
-
-# ---------- #####  ---------
-
-#--local-
-import warnings
+# ---------- Setup ----------
 warnings.filterwarnings('ignore')
-import os
+logging.basicConfig(level=logging.INFO)
 print("Current working directory:", os.getcwd())
 
-# ---------- #####  ---------
+# ---------- Load Config ----------
 script_dir = os.path.dirname(os.path.abspath(__file__))
 config_path = os.path.join(script_dir, 'config_local_run.json')
 
 with open(config_path, 'r') as f:
     config = json.load(f)
 
-
-# --- Extract AWS config ---
+# ---------- AWS Config ----------
 aws_config = config['aws']
 access_key = aws_config['access_key']
 secret_key = aws_config['secret_key']
 REGION = aws_config['region']
 services_config = config['services']
 
-#--prod--
 aws_config_prod = config['aws_prod']
 access_key_prod = aws_config_prod['access_key_prod']
 secret_key_prod = aws_config_prod['secret_key_prod']
 REGION_prod = aws_config_prod['region_prod']
 
-
-# --- S3 Buckets ---
-#s3_source_bucket = services_config['s3']['source_bucket_name']
+# ---------- Services ----------
 s3_redacted_bucket = services_config['s3']['redacted_bucket_name']
 s3_manual_review_bucket = services_config['s3']['manual_review_bucket']
- 
-#--prod--
 s3_source_bucket_prod = services_config['s3_prod']['source_bucket_name_prod']
-  
-# --- SQS Queue Detail ---
+
 sqs_queue_url = services_config['sqs']['HITLReview_Queue']['Queue_URL']
 sqs_batch_size = services_config['sqs']['HITLReview_Queue']['Batch_Size']
 
-
-# <<<<<<<  AWS Initialization with Exception Handling >>>>>>>
+# ---------- Initialize AWS Clients ----------
 try:
-
-    sqs = boto3.client('sqs', aws_access_key_id=access_key, aws_secret_access_key=secret_key, region_name=REGION, verify=False)
-
+    sqs = boto3.client(
+        'sqs',
+        aws_access_key_id=access_key,
+        aws_secret_access_key=secret_key,
+        region_name=REGION,
+        verify=False
+    )
 except Exception as e:
-    logging.critical("Failed to initialize AWS clients", exc_info=True)
+    logging.critical(" Failed to initialize AWS clients", exc_info=True)
     raise SystemExit("Terminating due to AWS initialization error.")
- 
 
-# ---------- #####  ---------
-
- 
-# Global Variables
-metadata_json = {}
-
-
-
-# ---------- SQS Read/Delete Utilities ----------
-
-def read_message_from_queue(queueUrl, msg_count):
-    print(f"\nReading messages from SQS Queue: {queueUrl}")
-    messages = []
-    try:
-        response = sqs.receive_message(
-            QueueUrl = queueUrl,
-            MaxNumberOfMessages = msg_count,
-            WaitTimeSeconds = 10
-        )
-
-        if 'Messages' in response:
-            for message in response['Messages']:
-                messages.append({
-                    'Body': message['Body'],
-                    'ReceiptHandle': message['ReceiptHandle']
-                })
-            return messages
-        return None
-    except ClientError as e:
-        print(f"Error reading from SQS Queue: {e}")
-        raise
-    
 # ---------- BOM Cleaning Utility ----------
 def clean_object_key(object_key):
     if not object_key.startswith('T'):
@@ -119,24 +74,48 @@ def clean_object_key(object_key):
             return cleaned_key
         else:
             print(" Cleaning did not restore expected prefix. Manual inspection needed.")
-            return object_key  # fallback
+            return object_key
     return object_key
+
+# ---------- SQS Utilities ----------
+def read_message_from_queue(queue_url, msg_count):
+    print(f"\n📨 Reading messages from SQS Queue: {queue_url}")
+    try:
+        response = sqs.receive_message(
+            QueueUrl=queue_url,
+            MaxNumberOfMessages=msg_count,
+            WaitTimeSeconds=10
+        )
+        return response.get('Messages', [])
+    except ClientError as e:
+        print(f" Error reading from SQS Queue: {e}")
+        raise
 
 # ---------- Main Processing ----------
 def process_messages():
     messages = read_message_from_queue(sqs_queue_url, sqs_batch_size)
 
     if not messages:
-        print(" No messages to process.")
+        print("No messages to process.")
         return
 
     for msg in messages:
         try:
-            body = json.loads(msg['Body'])
+            raw_body = msg['Body']
+            try:
+                body = json.loads(raw_body)
+            except json.JSONDecodeError:
+                print(f" JSON decode error for message: {raw_body}")
+                continue
 
-            # Clean if needed
-            cleaned_key = clean_object_key(body)
+            # Find the object key
+            object_key = body.get("Records", [{}])[0].get("s3", {}).get("object", {}).get("key")
+            if not object_key:
+                print(" No object key found in message.")
+                continue
 
+            print(f" Object key from message: {repr(object_key)}")
+            cleaned_key = clean_object_key(object_key)
 
         except Exception as e:
             print(f" Error processing message: {e}")
@@ -145,12 +124,3 @@ def process_messages():
 # ---------- Entry ----------
 if __name__ == "__main__":
     process_messages()
-
-################################
-
-Current working directory: C:\Users\ABGOUDARZI
-
-Reading messages from SQS Queue: https://sqs.us-east-1.amazonaws.com/160885272637/sos-appian-dev-pii-redaction-rawpdfs-w2j2r4
- Error processing message: Expecting property name enclosed in double quotes: line 1 column 2 (char 1)
- Error processing message: Expecting property name enclosed in double quotes: line 1 column 2 (char 1)
-PS C:\Users\ABGOUDARZI> 
