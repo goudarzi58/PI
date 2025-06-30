@@ -15,7 +15,99 @@ script_dir = os.path.dirname(os.path.abspath(__file__))
 config_path = os.path.join(script_dir, 'config_local_run.json')
 
 with open(config_path, 'r') as f:
-    config = json
+    config = json.load(f)
+
+# ---------- AWS Config ----------
+aws_config = config['aws']
+access_key = aws_config['access_key']
+secret_key = aws_config['secret_key']
+REGION = aws_config['region']
+services_config = config['services']
+
+aws_config_prod = config['aws_prod']
+access_key_prod = aws_config_prod['access_key_prod']
+secret_key_prod = aws_config_prod['secret_key_prod']
+REGION_prod = aws_config_prod['region_prod']
+
+# ---------- Services ----------
+sqs_queue_url = services_config['sqs']['HITLReview_Queue']['Queue_URL']
+sqs_batch_size = services_config['sqs']['HITLReview_Queue']['Batch_Size']
+
+# ---------- Initialize AWS Clients ----------
+try:
+    sqs = boto3.client(
+        'sqs',
+        aws_access_key_id=access_key,
+        aws_secret_access_key=secret_key,
+        region_name=REGION,
+        verify=False
+    )
+except Exception as e:
+    logging.critical(" Failed to initialize AWS clients", exc_info=True)
+    raise SystemExit("Terminating due to AWS initialization error.")
+
+# ---------- Object Key Cleaning Utility ----------
+def clean_object_key(object_key):
+    # Remove everything before the first 'T' if any
+    t_index = object_key.find('T')
+    
+    if t_index == -1:
+        print(f" 'T' not found in object key: {repr(object_key)}")
+        return object_key
+
+    cleaned_key = object_key[t_index:]
+
+    if cleaned_key != object_key:
+        print(f" Unexpected prefix removed. Cleaned key: {cleaned_key}")
+    else:
+        print(f" Object key is already clean: {cleaned_key}")
+
+    return cleaned_key
+
+# ---------- SQS Utilities ----------
+def read_message_from_queue(queue_url, msg_count):
+    print(f"\n Reading messages from SQS Queue: {queue_url}")
+    try:
+        response = sqs.receive_message(
+            QueueUrl=queue_url,
+            MaxNumberOfMessages=msg_count,
+            WaitTimeSeconds=10
+        )
+        return response.get('Messages', [])
+    except ClientError as e:
+        print(f" Error reading from SQS Queue: {e}")
+        raise
+
+# ---------- Main Processing ----------
+def process_messages():
+    messages = read_message_from_queue(sqs_queue_url, sqs_batch_size)
+
+    if not messages:
+        print(" No messages to process.")
+        return
+
+    for msg in messages:
+        try:
+            object_key = msg['Body']  # Direct string (e.g., 'T000...PDF')
+
+            if not object_key:
+                print(" No object key in message body.")
+                continue
+
+            print(f" Object key from message: {repr(object_key)}")
+            cleaned_key = clean_object_key(object_key)
+
+            # Here you can do something with the cleaned_key
+            # For example: read_file_from_s3(cleaned_key)
+
+        except Exception as e:
+            print(f" Error processing message: {e}")
+            continue
+
+# ---------- Entry ----------
+if __name__ == "__main__":
+    process_messages()
+
 
 
 
