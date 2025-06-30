@@ -94,3 +94,70 @@ def process_messages():
 # ---------- Entry ----------
 if __name__ == "__main__":
     process_messages()
+
+
+###################
+{'file_id': 1, 'MessageId': 'PLACEHOLDER_ID_1', 'ReceiptHandle': 'PLACEHOLDER_RECEIPT_1', 'MD5OfBody': 'PLACEHOLDER_MD5_1', 'Body': 'T000591995700024V0000R000150004857545P00092D000591995700024UCC_BEST_OriginalFiling_591995700033.PDF.pdf', 'Attributes': {}}
+
+
+messages in sqs:
+View details
+Delete
+
+1
+
+
+ID
+Sent
+Size
+Receive count
+52ad9363-ee03-4b7a-a4fa-f5e3c183f4bc
+2025-06-30T14:36-05:00
+256 bytes
+1
+122524c1-9ca1-4c4d-b538-e74d4f94ef0e
+2025-06-30T14:36-05:00
+256 bytes
+1
+2b416e4b-1ffb-4bb5-8310-78c76f7fdc7f
+2025-06-30T14:36-05:00
+256 bytes
+1
+221a4747-5d0f-408b-bed4-646b9878ae13
+2025-06-30T14:36-05:00
+256 bytes
+1
+c3324253-40d5-42f7-ab77-476a94da42d6
+2025-06-30T14:36-05:00
+256 bytes
+1
+99ca446e-d8d4-4f79-adde-f56460e41503
+2025-06-30T14:36-05:00
+256 bytes
+1
+be5d4ca6-8c00-4054-b6f3-c7159f222dfa
+2025-06-30T14:36-05:00
+256 bytes
+1
+4361b234-3e9a-4d0f-8e2a-cee4677f479a
+2025-06-30T14:36-05:00
+260 bytes
+1
+f0732019-56ad-48e4-a261-86aa9d4656da
+2025-06-30T14:36-05:00
+256 bytes
+1
+4836c262-f168-4269-9713-a501df8cbbd4
+2025-06-30T14:36-05:00
+256 bytes
+1
+
+Output of the code:
+
+ Reading messages from SQS Queue: https://sqs.us-east-1.amazonaws.com/160885272637/sos-appian-dev-pii-redaction-rawpdfs-w2j2r4
+ Object key from message: "{'file_id': 3, 'MessageId': 'PLACEHOLDER_ID_3', 'ReceiptHandle': 'PLACEHOLDER_RECEIPT_3', 'MD5OfBody': 'PLACEHOLDER_MD5_3', 'Body': 'T000591995700024V0000R000150004857545P00092D000591995700024UCC_BEST_OriginalFiling_591995700032.PDF.pdf', 'Attributes': {}}"
+ Unexpected prefix detected in file name: "{'file_id': 3, 'MessageId': 'PLACEHOLDER_ID_3', 'ReceiptHandle': 'PLACEHOLDER_RECEIPT_3', 'MD5OfBody': 'PLACEHOLDER_MD5_3', 'Body': 'T000591995700024V0000R000150004857545P00092D000591995700024UCC_BEST_OriginalFiling_591995700032.PDF.pdf', 'Attributes': {}}"
+ Cleaning did not restore expected prefix.
+ Object key from message: "{'file_id': 4, 'MessageId': 'PLACEHOLDER_ID_4', 'ReceiptHandle': 'PLACEHOLDER_RECEIPT_4', 'MD5OfBody': 'PLACEHOLDER_MD5_4', 'Body': 'T000591995700024V0000R000150004857545P00092D000591995700024UCC_BEST_OriginalFiling_591995700030.PDF.pdf', 'Attributes': {}}"
+ Unexpected prefix detected in file name: "{'file_id': 4, 'MessageId': 'PLACEHOLDER_ID_4', 'ReceiptHandle': 'PLACEHOLDER_RECEIPT_4', 'MD5OfBody': 'PLACEHOLDER_MD5_4', 'Body': 'T000591995700024V0000R000150004857545P00092D000591995700024UCC_BEST_OriginalFiling_591995700030.PDF.pdf', 'Attributes': {}}"
+ Cleaning did not restore expected prefix.
