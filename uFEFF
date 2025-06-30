@@ -1,17 +1,3 @@
-with open("./folder/file.csv", "r", encoding="utf-8-sig") as f:
-    reader = csv.reader(f)
-    # imho you are creating a data structure, the file was its (original) source
-    # so don't name it 'file' anymore
-    data = [[c.replace('\ufeff', '') for c in row] for row in reader]
- 
-yes , for e.g. key = 'T000000000449534V0000R000007400006611P00102D000000000449534UCC_BEST_OriginalFiling_449534.PDF' should be read from queue instead it is reading it as 
-key = '/ufeffT000000000449534V0000R000007400006611P00102D000000000449534UCC_BEST_OriginalFiling_449534.PDF'
-
-
- 
-#################
-
-
 import os
 import json
 import logging
@@ -44,10 +30,6 @@ secret_key_prod = aws_config_prod['secret_key_prod']
 REGION_prod = aws_config_prod['region_prod']
 
 # ---------- Services ----------
-s3_redacted_bucket = services_config['s3']['redacted_bucket_name']
-s3_manual_review_bucket = services_config['s3']['manual_review_bucket']
-s3_source_bucket_prod = services_config['s3_prod']['source_bucket_name_prod']
-
 sqs_queue_url = services_config['sqs']['HITLReview_Queue']['Queue_URL']
 sqs_batch_size = services_config['sqs']['HITLReview_Queue']['Batch_Size']
 
@@ -61,19 +43,19 @@ try:
         verify=False
     )
 except Exception as e:
-    logging.critical(" Failed to initialize AWS clients", exc_info=True)
+    logging.critical("❌ Failed to initialize AWS clients", exc_info=True)
     raise SystemExit("Terminating due to AWS initialization error.")
 
 # ---------- BOM Cleaning Utility ----------
 def clean_object_key(object_key):
     if not object_key.startswith('T'):
-        print(f" Unexpected prefix detected in file name: {repr(object_key)}")
+        print(f"⚠️ Unexpected prefix detected in file name: {repr(object_key)}")
         cleaned_key = object_key.replace('\uFEFF', '')
         if cleaned_key.startswith('T'):
-            print(f" Cleaned file name: {cleaned_key}")
+            print(f"✅ Cleaned file name: {cleaned_key}")
             return cleaned_key
         else:
-            print(" Cleaning did not restore expected prefix. Manual inspection needed.")
+            print("❌ Cleaning did not restore expected prefix. Manual inspection needed.")
             return object_key
     return object_key
 
@@ -88,7 +70,7 @@ def read_message_from_queue(queue_url, msg_count):
         )
         return response.get('Messages', [])
     except ClientError as e:
-        print(f" Error reading from SQS Queue: {e}")
+        print(f"🚫 Error reading from SQS Queue: {e}")
         raise
 
 # ---------- Main Processing ----------
@@ -96,40 +78,19 @@ def process_messages():
     messages = read_message_from_queue(sqs_queue_url, sqs_batch_size)
 
     if not messages:
-        print("No messages to process.")
+        print("ℹ️ No messages to process.")
         return
 
     for msg in messages:
         try:
-            raw_body = msg['Body']
-            try:
-                body = json.loads(raw_body)
-            except json.JSONDecodeError:
-                print(f" JSON decode error for message: {raw_body}")
-                continue
-
-            # Find the object key
-            object_key = body.get("Records", [{}])[0].get("s3", {}).get("object", {}).get("key")
-            if not object_key:
-                print(" No object key found in message.")
-                continue
-
-            print(f" Object key from message: {repr(object_key)}")
+            object_key = msg['Body']
+            print(f"📄 Object key from message: {repr(object_key)}")
             cleaned_key = clean_object_key(object_key)
 
         except Exception as e:
-            print(f" Error processing message: {e}")
+            print(f"🚨 Error processing message: {e}")
             continue
 
 # ---------- Entry ----------
 if __name__ == "__main__":
     process_messages()
-
-###################
-It runs into this error:
-
-
-📨 Reading messages from SQS Queue: https://sqs.us-east-1.amazonaws.com/160885272637/sos-appian-dev-pii-redaction-rawpdfs-w2j2r4
- JSON decode error for message: {'file_id': 1, 'MessageId': 'PLACEHOLDER_ID_1', 'ReceiptHandle': 'PLACEHOLDER_RECEIPT_1', 'MD5OfBody': 'PLACEHOLDER_MD5_1', 'Body': 'T000000000449534V0000R000007400006611P00102D000000000449534UCC_BEST_OriginalFiling_449534.PDF', 'Attributes': {}}
- JSON decode error for message: {'file_id': 2, 'MessageId': 'PLACEHOLDER_ID_2', 'ReceiptHandle': 'PLACEHOLDER_RECEIPT_2', 'MD5OfBody': 'PLACEHOLDER_MD5_2', 'Body': 'T000591995700024V0000R000150004857545P00092D000591995700024UCC_BEST_OriginalFiling_591995700024.PDF.pdf', 'Attributes': {}}
-
