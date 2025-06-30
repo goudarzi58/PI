@@ -1,0 +1,11 @@
+with open("./folder/file.csv", "r", encoding="utf-8-sig") as f:
+    reader = csv.reader(f)
+    # imho you are creating a data structure, the file was its (original) source
+    # so don't name it 'file' anymore
+    data = [[c.replace('\ufeff', '') for c in row] for row in reader]
+ 
+yes , for e.g. key = 'T000000000449534V0000R000007400006611P00102D000000000449534UCC_BEST_OriginalFiling_449534.PDF' should be read from queue instead it is reading it as 
+key = '/ufeffT000000000449534V0000R000007400006611P00102D000000000449534UCC_BEST_OriginalFiling_449534.PDF'
+
+
+ 
