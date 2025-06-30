@@ -212,3 +212,11 @@ def process_messages():
 if __name__ == "__main__":
     process_messages()
 
+
+#############################
+ Reading messages from SQS Queue: https://sqs.us-east-1.amazonaws.com/160885272637/sos-appian-dev-pii-redaction-rawpdfs-w2j2r4
+ Object key from message: 'ufeffT000000000449534V0000R000007400006611P00102D000000000449534UCC_BEST_OriginalFiling_449534.PDF'
+ Unexpected prefix detected in file name: 'ufeffT000000000449534V0000R000007400006611P00102D000000000449534UCC_BEST_OriginalFiling_449534.PDF'
+ Cleaning did not restore expected prefix. Manual inspection needed.
+ Object key from message: 'T000591995700024V0000R000150004857545P00092D000591995700024UCC_BEST_OriginalFiling_591995700033.PDF.pdf'  
+ Object key from message: 'T000591995700024V0000R000150004857545P00092D000591995700024UCC_BEST_OriginalFiling_591995700024.PDF.pdf'
