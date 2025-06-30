@@ -124,3 +124,12 @@ def process_messages():
 # ---------- Entry ----------
 if __name__ == "__main__":
     process_messages()
+
+###################
+It runs into this error:
+
+
+📨 Reading messages from SQS Queue: https://sqs.us-east-1.amazonaws.com/160885272637/sos-appian-dev-pii-redaction-rawpdfs-w2j2r4
+ JSON decode error for message: {'file_id': 1, 'MessageId': 'PLACEHOLDER_ID_1', 'ReceiptHandle': 'PLACEHOLDER_RECEIPT_1', 'MD5OfBody': 'PLACEHOLDER_MD5_1', 'Body': 'T000000000449534V0000R000007400006611P00102D000000000449534UCC_BEST_OriginalFiling_449534.PDF', 'Attributes': {}}
+ JSON decode error for message: {'file_id': 2, 'MessageId': 'PLACEHOLDER_ID_2', 'ReceiptHandle': 'PLACEHOLDER_RECEIPT_2', 'MD5OfBody': 'PLACEHOLDER_MD5_2', 'Body': 'T000591995700024V0000R000150004857545P00092D000591995700024UCC_BEST_OriginalFiling_591995700024.PDF.pdf', 'Attributes': {}}
+
