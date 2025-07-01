@@ -1,0 +1,71 @@
+import os
+import json
+import boto3
+from collections import Counter
+
+# === Config Paths ===
+script_dir = os.path.dirname(os.path.abspath(__file__))
+config_path = os.getenv('CONFIG_PATH', os.path.join(script_dir, 'config_local_run.json'))
+
+# === Load Config ===
+with open(config_path, 'r') as f:
+    config = json.load(f)
+
+# === AWS Setup ===
+access_key = config['aws_prod']['access_key_prod']
+secret_key = config['aws_prod']['secret_key_prod']
+region = config['aws_prod']['region_prod']
+table_name = config['services']['dynamodb']['table_name_prod']
+
+dynamodb = boto3.resource(
+    'dynamodb',
+    aws_access_key_id=access_key,
+    aws_secret_access_key=secret_key,
+    region_name=region
+)
+
+table = dynamodb.Table(table_name)
+
+# === Scan Full Table ===
+def scan_table():
+    items = []
+    start_key = None
+
+    while True:
+        if start_key:
+            response = table.scan(ExclusiveStartKey=start_key)
+        else:
+            response = table.scan()
+
+        items.extend(response.get('Items', []))
+        start_key = response.get('LastEvaluatedKey')
+        if not start_key:
+            break
+
+    return items
+
+# === Check for Duplicate ObjectKey ===
+def find_duplicate_objectkeys(items):
+    object_keys = [item.get('ObjectKey') for item in items if item.get('ObjectKey')]
+    counter = Counter(object_keys)
+    duplicates = {key: count for key, count in counter.items() if count > 1}
+
+    if duplicates:
+        print("\n🚨 Duplicate ObjectKey entries found:")
+        for key, count in duplicates.items():
+            print(f"{key} — {count} records")
+    else:
+        print("\n✅ No duplicate ObjectKey entries found.")
+
+# === Main ===
+def main():
+    print("🔍 Scanning DynamoDB table for ObjectKey duplicates...")
+    items = scan_table()
+    if not items:
+        print("⚠️ No items found.")
+        return
+
+    find_duplicate_objectkeys(items)
+
+if __name__ == '__main__':
+    main()
