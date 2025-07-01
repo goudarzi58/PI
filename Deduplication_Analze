@@ -1,8 +1,25 @@
-T001488009390013V0000R000002500284873P00092D001488009390013UCC_BEST_OriginalFiling_1488009390013.PDF	
-T001484592180002V0000R000250024885630P00092D001484592180002UCC_BEST_OriginalFiling_1484592180002.PDF	
-T001486418620002V0000R000250027097911P00092D001486418620002UCC_BEST_OriginalFiling_1486418620002.PDF	
-T001484338580015V0000R000250024707441P00092D001484338580015UCC_BEST_OriginalFiling_1484338580015.PDF	2025-06-23 04:47:24+00:00
-T001484338580013V0000R000250024707209P00092D001484338580013UCC_BEST_OriginalFiling_1484338580013.PDF	2025-06-23 04:47:20+00:00
-T001484338580011V0000R000250024707067P00092D001484338580011UCC_BEST_OriginalFiling_1484338580011.PDF	2025-06-23 04:47:13+00:00
+import pandas as pd
+
+# Load CSV (no headers assumed)
+df = pd.read_csv('your_file.csv', header=None, sep='\t')
+
+# Assign column names for clarity
+df.columns = ['ObjectKey'] if df.shape[1] == 1 else ['ObjectKey', 'Timestamp']
+
+# Check for duplicates in ObjectKey
+duplicates = df[df.duplicated(subset='ObjectKey', keep=False)]
+
+if not duplicates.empty:
+    print("🔍 Duplicates found:")
+    print(duplicates)
+else:
+    print(" No duplicates found.")
+
+# Drop duplicates (keep first occurrence)
+df_unique = df.drop_duplicates(subset='ObjectKey', keep='first')
+
+# Save to new CSV
+df_unique.to_csv('deduplicated_files.csv', index=False)
+
 
 
