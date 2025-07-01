@@ -234,3 +234,599 @@ def process_messages():
 if __name__ == "__main__":
     process_messages()
 
+
+###################################################################
+
+import io
+import json
+from pydoc import text
+import fitz
+import uuid
+import boto3
+from pathlib import Path
+from datetime import datetime
+from botocore.exceptions import ClientError
+from PIL import Image, ImageDraw, ImageStat, ImageEnhance
+from textractcaller.t_call import call_textract, Textract_Types
+from textractoverlayer.t_overlay import DocumentDimensions, get_bounding_boxes
+from textractprettyprinter.t_pretty_print import Textract_Pretty_Print, get_string
+import os
+
+
+
+# --- Extract AWS config ---
+aws_config = config['aws']
+access_key = aws_config['access_key']
+secret_key = aws_config['secret_key']
+region = aws_config['region'] 
+services_config = config['services']
+ 
+#--Extract Prod Details--
+aws_config_prod = config['aws_prod']
+access_key_prod = aws_config_prod['access_key_prod']
+secret_key_prod = aws_config_prod['secret_key_prod']
+region_prod = aws_config_prod['region_prod']
+
+# --- S3 Buckets Dev---
+s3_redacted_bucket = services_config['s3']['redacted_bucket_name']
+s3_manual_review_bucket = services_config['s3']['manual_review_bucket']
+ 
+#--S3 Bucket Prod--
+s3_source_bucket_prod = services_config['s3_prod']['source_bucket_name_prod']
+  
+# --- SQS Queue Detail ---
+sqs_queue_url = services_config['sqs']['HITLReview_Queue']['Queue_URL']
+sqs_batch_size = services_config['sqs']['HITLReview_Queue']['Batch_Size']
+
+# Object Initializations --- 
+s3 = boto3.client('s3', aws_access_key_id=access_key, aws_secret_access_key=secret_key, region_name=region, verify=False)
+s3_prod = boto3.client('s3', aws_access_key_id=access_key_prod, aws_secret_access_key=secret_key_prod, region_name=region_prod, verify=False)
+
+textract = boto3.client('textract', aws_access_key_id=access_key, aws_secret_access_key=secret_key, region_name=region, verify=False)
+dynamodb = boto3.resource('dynamodb', aws_access_key_id=access_key, aws_secret_access_key=secret_key, region_name=region, verify=False)
+sqs = boto3.client('sqs', aws_access_key_id=access_key, aws_secret_access_key=secret_key, region_name=region, verify=False)
+bedrock = boto3.client('bedrock-runtime', aws_access_key_id=access_key, aws_secret_access_key=secret_key, region_name=region, verify=False)
+ 
+# Global Variables
+metadata_json = {}
+
+"""
+    Reads a file from the specified S3 bucket using the Dev environment credentials.
+
+    Args:
+        bucket_name (str): Name of the S3 bucket.
+        object_key (str): Key (path) of the file in the S3 bucket.
+
+    Returns:
+        bytes: The file content as bytes.
+""" 
+def read_file_from_s3(bucket_name, object_key):
+    try:
+        print("S3 bucket_name:", bucket_name)
+        print("File name:", object_key)
+
+        response = s3.get_object(Bucket=bucket_name, Key=object_key)
+        return response['Body'].read()
+    except ClientError as e:
+        print(f"Error reading file from S3: {e}")
+        raise
+
+
+"""
+    Reads a file from the specified S3 bucket using the Prod environment credentials.
+
+    Args:
+        bucket_name (str): Name of the S3 bucket.
+        object_key (str): Key (path) of the file in the S3 bucket.
+
+    Returns:
+        bytes: The file content as bytes.
+"""
+def read_file_from_s3_prod(bucket_name, object_key):
+    try:
+        print("S3 bucket_name:", bucket_name)
+        print("File name:", object_key)
+
+        response = s3_prod.get_object(Bucket=bucket_name, Key=object_key)
+        return response['Body'].read()
+    except ClientError as e:
+        print(f"Error reading file from S3: {e}")
+        raise
+
+
+"""
+    Inserts or updates the status of a file processing job in the DynamoDB table.
+
+    Args:
+        partition_key (str): Partition key for the DynamoDB table.
+        sort_key (str): Sort key for the DynamoDB table.
+        object_key (str): S3 object key for the file.
+        status (str): Current processing status.
+        status_message (str): Description or message for the current status.
+        file_type (str, optional): Type of the file (e.g., 'Sovereign File').
+        metadata_json (dict, optional): Additional metadata to store.
+"""
+def upsert_dynamoDB_status(partition_key, sort_key, object_key, status, status_message,file_type=None, metadata_json=None):
+    try:
+        
+        # Get record from Database
+        response = dynamodb_table.get_item(Key={'pk': partition_key, 'jobid': sort_key})
+        update_expression="SET #status = :status, #StatusMessage = :StatusMessage"
+        expression_attribute_names={"#status": "Status", "#StatusMessage": "StatusMessage"}
+        expression_attribute_values={":status": status, ":StatusMessage": status_message}
+        
+        # Add Additional parameters if passed
+        if metadata_json:
+            update_expression += ", #metadata =:metadata"
+            expression_attribute_names['#metadata'] = 'Metadata'
+            expression_attribute_values[':metadata'] = json.dumps(metadata_json)
+        if file_type:
+            update_expression += ", #file_type =:file_type"
+            expression_attribute_names['#file_type'] = 'file_type'
+            expression_attribute_values[':file_type'] = json.dumps(file_type)
+
+        if "Item" in response:
+            # Update existing record
+            dynamodb_table.update_item(
+                Key={'pk': partition_key, 'jobid': sort_key},
+                UpdateExpression= update_expression,
+                ExpressionAttributeNames=expression_attribute_names,
+                ExpressionAttributeValues=expression_attribute_values,
+                ReturnValues="UPDATED_NEW"
+            )
+            print(f"Updated record with PartitionKey={partition_key} and SortKey={sort_key}")
+        else:
+            #print("create a new entry in dynamodb")
+            # Create new record
+            dynamodb_table.put_item(
+                Item={
+                    'pk': partition_key,
+                    'jobid': sort_key,
+                    'ObjectKey': object_key,
+                    'Status': status,
+                    'StatusMessage': status_message
+                }
+            )
+            print(f"Created record with PartitionKey={partition_key} and SortKey={sort_key}")
+    except ClientError as e:
+        print(f"Error updating DynamoDB: {e}")
+        raise
+
+
+
+"""
+    Reads a batch of messages from the specified SQS queue.
+
+    Args:
+        queueUrl (str): URL of the SQS queue.
+        msg_count (int): Maximum number of messages to retrieve.
+
+    Returns:
+        list: List of messages with their bodies and receipt handles, or None if no messages are available.
+"""
+def read_message_from_queue(queueUrl, msg_count):
+    print(f"\nReading messages from SQS Queue: {queueUrl}")
+    messages = []
+    try:
+        response = sqs.receive_message(
+            QueueUrl = queueUrl,
+            MaxNumberOfMessages = msg_count,
+            WaitTimeSeconds = 10
+        )
+
+        if 'Messages' in response:
+            for message in response['Messages']:
+                messages.append({
+                    'Body': message['Body'],
+                    'ReceiptHandle': message['ReceiptHandle']
+                })
+            return messages
+        return None
+    except ClientError as e:
+        print(f"Error reading from SQS Queue: {e}")
+        raise
+
+
+"""
+    Deletes a message from the specified SQS queue using its receipt handle.
+
+    Args:
+        queueUrl (str): URL of the SQS queue.
+        message (dict): Message dictionary containing the receipt handle.
+
+    Returns:
+        str: Success message upon successful deletion.
+
+"""
+def delete_message_from_queue(queueUrl, message):
+    try:
+        response = sqs.delete_message(
+            QueueUrl = queueUrl,
+            ReceiptHandle = message['ReceiptHandle']
+        )
+        return "Successfully deleted the message from Queue"
+    except ClientError as e:
+        print(f"Error deleting message from SQS Queue: {e}")
+        raise
+
+
+"""
+    Sends extracted text pages to Amazon Bedrock for document analysis, parses the model's response
+    to extract detected entities in JSON format, and returns the structured results for the specified page.
+
+    Args:
+        text_pages (list): List of text content for each page.
+        page_number (int): The current page number being processed.
+
+    Returns:
+        list: Structured analysis results for the specified page.
+"""
+def process_with_bedrock(text_pages, page_number):
+    try:
+        
+        # Inject actual page count into prompt
+        formatted_prompt = prompt_template.replace("{page_count}", str(len(text_pages)))
+        
+         # Define messages for the Bedrock request
+        messages = [{
+            "role": "user",
+            "content": [
+                {"type": "text", "text": f"Use this context: {text_pages}"},
+                {"type": "text", "text": formatted_prompt}
+            ]
+        }]
+
+        response_arr = []
+
+        request = {
+            "anthropic_version": services_config['bedrock']['anthropic_version'],
+            "max_tokens": services_config['bedrock']['max_tokens'],
+            "temperature": services_config['bedrock']['temperature'],
+            "top_p": services_config['bedrock']['top_p'],
+            "messages": messages
+        }
+
+        response = bedrock.invoke_model(
+            modelId=services_config['bedrock']['model_id'],
+            body=json.dumps(request)
+        )
+        # print(response)
+
+        response_body = response['body'].read().decode('utf-8')
+        if not response_body:
+            raise ValueError("Bedrock response body is empty")
+            
+        result = json.loads(response_body)
+
+        # Extract the text response
+        text_response = result['content'][0]['text']
+    
+        # Extract JSON part from the response
+        json_text = text_response.split("</document_analysis>")[-1]
+
+        # Remove code block markers if present
+        json_text = json_text.strip()
+        if json_text.startswith("```json"):
+            json_text = json_text[len("```json"):].strip()
+        if json_text.startswith("```"):
+            json_text = json_text[len("```"):].strip()
+        if json_text.endswith("```"):
+            json_text = json_text[:-3].strip()
+
+        # Validate JSON structure
+        try:
+            parsed_json = json.loads(json_text)
+            page_num = page_number + 1
+            parsed_json_result = {"metadata": {"pages": [{str(page_num): parsed_json['metadata']['entities']}]}}
+
+            response_arr.append(parsed_json_result)
+        
+        except json.JSONDecodeError as e:
+            print(f"Invalid JSON structure: {str(e)}")
+            print(f"Raw JSON text: {json_text}")
+            raise
+
+        return response_arr
+    
+    except ClientError as e:
+        print(f"Bedrock API Error: {str(e)}")
+        raise
+    except json.JSONDecodeError as e:
+        print(f"JSON Parsing Error: {str(e)}")
+        print(f"Raw Response: {text_response}")
+        raise
+    except ValueError as e:
+        print(f"Value Error: {str(e)}")
+        raise
+
+
+"""
+    Converts a PDF file (as bytes) into a list of PIL Image objects, one per page.
+
+    Args:
+        pdf_bytes (bytes): PDF file content as bytes.
+
+    Returns:
+        list: List of PIL Image objects representing each page of the PDF.
+"""
+def pdf_to_images(pdf_bytes):
+    pdf_document = fitz.open(stream=pdf_bytes, filetype='pdf')
+    images = []
+    zoom = 2.0
+
+    for page_num in range(len(pdf_document)):
+        page = pdf_document[page_num]
+        matrix = fitz.Matrix(zoom, zoom)
+        pix = page.get_pixmap(matrix=matrix)
+        img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+        images.append(img)
+    return images
+
+"""
+    Converts a list of PIL Image objects into a single PDF file (as bytes).
+
+    Args:
+        images (list): List of PIL Image objects.
+
+    Returns:
+        BytesIO: BytesIO object containing the PDF file.
+"""
+def images_to_pdf(images):
+    output_pdf_bytes = io.BytesIO()
+    images[0].save(output_pdf_bytes, format='PDF', save_all=True, append_images=images[1:], quality=95)
+    output_pdf_bytes.seek(0)
+    return output_pdf_bytes
+
+"""
+    Handles files identified as containing sovereign keyword by creating a JSON file
+    and uploading it to the manual review S3 bucket.
+"""
+def process_sovereign_files():
+    global metadata_json
+    # Create a JSON file for sovereign entities
+    sovereign_json = {
+        "file_name": metadata_json['file_name'],
+        "is_sovereign": "Yes"
+    }
+    
+    # Save the JSON to S3
+    s3.put_object(
+        Bucket=s3_manual_review_bucket,
+        Key=f"{Path(metadata_json['file_name']).stem}.json",
+        Body=json.dumps(sovereign_json),
+        ContentType='application/json'
+    )
+    print("Sovereign JSON file created and uploaded to S3.")
+
+"""
+    Identifies PII entities in a given image using Textract and Bedrock, and collects
+    bounding boxes for detected entities for redaction.
+
+    Args:
+        image (PIL.Image): Image of the PDF page.
+        page_number (int): Page number of the image.
+
+    Returns:
+        dict : Updated metadata_json with redaction details, or 'sovereign_found' if a sovereign entity is detected.
+"""
+def identify_pii_entities(image, page_number): 
+    img_byte_arr = io.BytesIO()
+    image.save(img_byte_arr, format='PNG')
+    img_byte_arr.seek(0)
+
+    # Extract data using Textract
+    resp = call_textract(input_document = img_byte_arr.getvalue(), boto3_textract_client=textract)
+    document_dimension:DocumentDimensions = DocumentDimensions(doc_width=image.size[0], doc_height=image.size[1])
+    overlay=[Textract_Types.WORD, Textract_Types.FORM, Textract_Types.CELL, Textract_Types.KEY, Textract_Types.VALUE]
+    bounding_box_list = get_bounding_boxes(textract_json=resp, document_dimensions=[document_dimension], overlay_features=overlay)
+    text = get_string(textract_json =resp, output_type=[Textract_Pretty_Print.LINES])
+    sovereign_variables = config['sovereign']['sovereign_variables']
+     
+    for i in range(len(sovereign_variables)):
+        if sovereign_variables[i] in text:
+            sovereign = 'sovereign_found'
+            return sovereign
+      
+    bedrock_response = process_with_bedrock(text, page_number)
+    print(f"\nBedrock Response: {bedrock_response}")
+
+    for i in range(len(bedrock_response)):
+        if 'metadata' not in bedrock_response[i] or 'pages' not in bedrock_response[i]['metadata']:
+            raise ValueError("Invalid Bedrock response format")
+
+        pii_entities_detected = bedrock_response[i]['metadata']['pages'][0]
+        key = list(pii_entities_detected.keys())[0]
+        # Collect bounding boxes for entities
+        redactions_metadata = []
+        for i in range(len(pii_entities_detected[key])):
+            entity_text = pii_entities_detected[key][i]['text']
+            entity_type = pii_entities_detected[key][i]['Entity Type']
+            if entity_type not in ["Filing Number", "Document Number"]:
+                for bbox in bounding_box_list:
+                    # For PII entities with multiple parts.
+                    if ' ' in entity_text:
+                        entity_text_split = entity_text.split(' ')
+                        for i in range(len(entity_text_split)):
+                            if entity_text_split[i] in bbox.text:
+                                redaction_entity = {
+                                    "text": bbox.text.replace("\n", "\\n"),
+                                    "Entity Type": entity_type,
+                                    "bbox": [bbox.xmin, bbox.ymin, bbox.xmax, bbox.ymax],
+                                    "textract_confidence_score": bbox.confidence,
+                                    "status": "redacted"
+                                }
+                                # Check for duplicates
+                                key_nodes = ['text', 'Entity Type', 'bbox', 'status']
+                                new_keys = tuple(redaction_entity[key] for key in key_nodes)
+                                existing_keys = (tuple(existing_json[key] for key in key_nodes) for existing_json in redactions_metadata)
+                                if new_keys not in existing_keys:
+                                    redactions_metadata.append(redaction_entity)
+                    
+                    # For PII entities with only one part.
+                    if entity_text in bbox.text:
+                        redaction_entity = {
+                            "text": bbox.text.replace("\n", "\\n"),
+                            "Entity Type": entity_type,
+                            "bbox": [bbox.xmin, bbox.ymin, bbox.xmax, bbox.ymax],
+                            "textract_confidence_score": bbox.confidence,
+                            "status": "redacted"
+                        }
+                        # Check for duplicates
+                        key_nodes = ['text', 'Entity Type', 'bbox', 'status']
+                        new_keys = tuple(redaction_entity[key] for key in key_nodes)
+                        existing_keys = (tuple(existing_json[key] for key in key_nodes) for existing_json in redactions_metadata)
+                        if new_keys not in existing_keys:
+                            redactions_metadata.append(redaction_entity)
+        
+        metadata_json['pages'].append({f"{page_number + 1}" : redactions_metadata})
+
+    return metadata_json
+
+"""
+    Orchestrates the end-to-end processing of a PDF file: reads from S3, converts to images,
+    identifies PII entities, applies redactions, converts back to PDF, and uploads the result to S3.
+    Updates DynamoDB with processing status at each step.
+
+    Args:
+        partition_key (str): Partition key for DynamoDB.
+        sort_key (str): Sort key for DynamoDB.
+        object_key (str): S3 object key for the PDF file.
+
+    Returns:
+        None
+"""
+def process_pdf(partition_key, sort_key, object_key):
+    try:
+        global metadata_json
+        file_name = object_key.split('/')[-1]
+        metadata_json = {
+            'file_name': file_name,
+            'partition_key': partition_key,
+            'sort_key': sort_key,
+            'pages': []
+        }
+
+        upsert_dynamoDB_status(partition_key, sort_key, object_key, "Processing", "Reading PDF from S3")
+        print("\nReading file from S3 bucket:")
+        pdf_bytes = read_file_from_s3_prod(s3_source_bucket_prod, object_key)
+        images = pdf_to_images(pdf_bytes)
+        print(f"Number of pages in this document: {str(len(images))}")
+
+        # Processing Images
+        for index,image in enumerate(images):
+            
+            pii_json_response = identify_pii_entities(image, index)
+            if pii_json_response == "sovereign_found":
+                print("\nSovereign entity found in the document. Routing to manual review.")
+                upsert_dynamoDB_status(partition_key, sort_key, object_key, "Processing", "Sovereign entity found in the document. Routing to manual review")
+                process_sovereign_files()
+                
+                upsert_dynamoDB_status(partition_key, sort_key, object_key,"Manual Review", "File uploaded in S3 for manual review","Sovereign File")
+                return
+
+        upsert_dynamoDB_status(partition_key, sort_key, object_key, "Processing", "Applying redactions")
+        print("\nApplying redactions")
+        processed_images = apply_overlay_to_images(images=images, metadata_json=pii_json_response)
+        
+        upsert_dynamoDB_status(partition_key, sort_key, object_key, "Processing", "Converting Images to PDF")
+        print("\nConverting Images to PDF")
+        output_pdf_bytes = images_to_pdf(processed_images)
+
+        upsert_dynamoDB_status(partition_key, sort_key, object_key, "Processing", "Uploading PDF to S3")
+        print("\nUploading PDF to S3")
+        s3.upload_fileobj(output_pdf_bytes, s3_redacted_bucket, object_key)
+        
+        upsert_dynamoDB_status(partition_key, sort_key, object_key ,"Redacted", "Succesfully redacted and saved in S3","Non-Sovereign File",metadata_json)
+        print("\nSuccesfully redacted and saved document in S3")
+        #return pii_json_response
+        return
+    
+    except Exception as e:
+        error_msg = f"Processing Failed: {str(e)}"
+        print(error_msg)
+        upsert_dynamoDB_status(partition_key, sort_key, object_key, "failed", error_msg)
+        raise
+
+"""
+    Applies redaction overlays to images based on bounding boxes for detected PII entities.
+
+    Args:
+        images (list): List of PIL Image objects.
+        metadata_json (dict): Metadata containing redaction details for each page.
+
+    Returns:
+        list: List of redacted PIL Image objects.
+"""
+def apply_overlay_to_images(images, metadata_json):
+    processed_images = []
+    
+    fill_color = (0, 0, 0, 255)
+    for index,image in enumerate(images):
+        if image.mode != 'RGBA':
+            image = image.convert('RGBA')
+        overlay = Image.new('RGBA', image.size, (0,0,0,0))
+        draw = ImageDraw.Draw(overlay)
+        
+        page_elements = metadata_json['pages'][index][str(index + 1)]
+        redactions = [element['bbox'] for element in page_elements]
+        for box in redactions:
+            draw.rectangle(xy=[box[0], box[1], box[2], box[3]], fill=fill_color)
+        image_with_highlights = Image.alpha_composite(image, overlay)
+        processed_images.append(image_with_highlights)
+       
+    return processed_images
+
+"""
+    Main entry point for the processing pipeline. Continuously polls the SQS queue for new messages,
+    processes each file, updates DynamoDB with status, and deletes processed messages from the queue.
+"""
+def main():
+    
+    global dynamodb_table
+    
+    # Read config file
+    global config, dynamodb_table,prompt_template
+    config_bucket_name = os.getenv("CONFIG_BUCKET_NAME")
+    config_object_key = os.getenv("CONFIG_OBJECT_KEY")
+
+    config_json = read_file_from_s3(config_bucket_name, config_object_key)
+    config = json.loads(config_json)
+
+    #Read the Prompt 
+    prompt_object_key = os.getenv("PROMPT_OBJECT_KEY")
+    prompt_content = read_file_from_s3(config_bucket_name, config_object_key)
+    prompt_template = prompt_content.decode('utf-8')
+
+    dynamodb_table = dynamodb.Table(services_config['dynamodb']['Metadata_Table_Name'])
+
+    while True:
+        messages = read_message_from_queue(sqs_queue_url, sqs_batch_size)
+        if messages is None:
+            print("No Items in the queue") #add logger module
+            break
+
+        # Processing messages
+        for message in messages:
+            # Generate partition key and sort key
+            partition_key = str(datetime.now().strftime('%Y-%m-%d'))
+            sort_key = "jr_"+str(uuid.uuid4())
+    
+            # Determine file extension and set up initial status
+            object_key = message['Body']
+            file_extension = Path(object_key).suffix.lower()
+            if file_extension != '.pdf':
+                upsert_dynamoDB_status(partition_key, sort_key, object_key, "Error", "Unknown file extension")
+                delete_message_from_queue(sqs_queue_url, message)
+                continue
+        
+            upsert_dynamoDB_status(partition_key, sort_key, object_key, "Initializing", f"File {file_extension} file detected")
+            print("\nInitializing-File detected:", object_key)
+            
+            process_pdf(partition_key, sort_key, object_key)
+                
+            # Delete message from SQS Queue
+            delete_message_from_queue(sqs_queue_url, message)
+            print(f"{sort_key} - Process Completed")
+    
+if __name__ == '__main__':
+    main()
