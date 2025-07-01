@@ -116,3 +116,63 @@ def main():
 
 if __name__ == '__main__':
     main()
+
+
+#######################################
+import os
+import json
+import boto3
+
+# === Global Configuration ===
+script_dir = os.path.dirname(os.path.abspath(__file__))
+config_path = os.getenv('CONFIG_PATH', os.path.join(script_dir, 'config_local_run.json'))
+
+# === Load Config ===
+with open(config_path, 'r') as f:
+    config = json.load(f)
+
+# === AWS Prod access ===
+access_key = config['aws_prod']['access_key_prod']
+secret_key = config['aws_prod']['secret_key_prod']
+REGION = config['aws_prod']['region_prod']
+table_name = config['services']['dynamodb']['table_name_prod']
+
+# === Connect to DynamoDB ===
+dynamodb = boto3.resource(
+    'dynamodb',
+    aws_access_key_id=access_key,
+    aws_secret_access_key=secret_key,
+    region_name=REGION
+)
+
+table = dynamodb.Table(table_name)
+
+# === Scan Table and Collect Unique Columns ===
+def get_all_column_names():
+    column_names = set()
+    start_key = None
+
+    while True:
+        if start_key:
+            response = table.scan(ExclusiveStartKey=start_key)
+        else:
+            response = table.scan()
+
+        for item in response.get('Items', []):
+            column_names.update(item.keys())
+
+        start_key = response.get('LastEvaluatedKey')
+        if not start_key:
+            break
+
+    return column_names
+
+# === Main Function ===
+def main():
+    column_names = get_all_column_names()
+    print("\n--- Unique Columns Found in Table ---")
+    for col in sorted(column_names):
+        print(col)
+
+if __name__ == '__main__':
+    main()
