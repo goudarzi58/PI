@@ -8,3 +8,111 @@ Avg processing time
 If #5 is heavy lift , ignore it.. just thinking what would make sense to have in a status report
  
 This needs to go out as daily status report... 
+
+
+###############################
+
+import os
+import json
+import time
+import boto3
+import csv
+from datetime import datetime
+
+# === Global Configuration ===
+script_dir = os.path.dirname(os.path.abspath(__file__))
+config_path = os.getenv('CONFIG_PATH', os.path.join(script_dir, 'config_local_run.json'))
+output_file = os.getenv('OUTPUT_FILE', os.path.join(script_dir, f'daily_report_{datetime.now().date()}.csv'))
+
+# === Load Config ===
+with open(config_path, 'r') as f:
+    config = json.load(f)
+
+# === AWS Prod access ===
+access_key = config['aws_prod']['access_key_prod']
+secret_key = config['aws_prod']['secret_key_prod']
+REGION = config['aws_prod']['region_prod']
+dynamodb_table_name = config['services']['dynamodb']['table_name_prod']
+
+# === Connect to DynamoDB ===
+dynamodb = boto3.resource(
+    'dynamodb',
+    aws_access_key_id=access_key,
+    aws_secret_access_key=secret_key,
+    region_name=REGION
+)
+
+table = dynamodb.Table(dynamodb_table_name)
+
+# === Query Table ===
+def scan_table():
+    items = []
+    start_key = None
+
+    while True:
+        if start_key:
+            response = table.scan(ExclusiveStartKey=start_key)
+        else:
+            response = table.scan()
+
+        items.extend(response.get('Items', []))
+        start_key = response.get('LastEvaluatedKey')
+
+        if not start_key:
+            break
+
+    return items
+
+# === Collect Metrics ===
+def generate_metrics_and_dump(items, output_file):
+    total_files = 0
+    total_time = 0
+    redacted_files = 0
+    sovereign_files = 0
+    container_set = set()
+
+    with open(output_file, 'w', newline='') as f:
+        writer = csv.writer(f)
+        writer.writerow(['FileName', 'ContainerID', 'FileType', 'ProcessingTime', 'Timestamp'])
+
+        for item in items:
+            try:
+                file_name = item.get('ObjectKey', 'N/A')
+                container_id = item.get('container_id', 'N/A')
+                file_type = item.get('type', 'Unknown')
+                time_taken = float(item.get('time_taken', 0))
+                timestamp = item.get('timestamp', '')
+
+                writer.writerow([file_name, container_id, file_type, time_taken, timestamp])
+
+                total_files += 1
+                total_time += time_taken
+                container_set.add(container_id)
+
+                if 'Redacted' in file_type:
+                    redacted_files += 1
+                elif 'Sovereign' in file_type:
+                    sovereign_files += 1
+
+            except Exception as e:
+                print(f"Error processing item: {e}")
+
+    avg_time = round(total_time / total_files, 2) if total_files else 0
+
+    print("\n--- Daily Status Report ---")
+    print(f"Total Files Processed     : {total_files}")
+    print(f"Containers Used           : {len(container_set)}")
+    print(f"Redacted Files            : {redacted_files}")
+    print(f"Sovereign Files           : {sovereign_files}")
+    print(f"Avg Processing Time (sec) : {avg_time}")
+    print(f"Output CSV                : {output_file}")
+
+# === Main ===
+def main():
+    start = time.time()
+    items = scan_table()
+    generate_metrics_and_dump(items, output_file)
+    print(f"Total Time to Run Script: {round(time.time() - start, 2)} seconds")
+
+if __name__ == '__main__':
+    main()
