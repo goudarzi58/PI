@@ -1,0 +1,62 @@
+import os
+import json
+import boto3
+import csv
+from datetime import datetime
+
+# === Config Paths ===
+script_dir = os.path.dirname(os.path.abspath(__file__))
+config_path = os.getenv('CONFIG_PATH', os.path.join(script_dir, 'config_local_run.json'))
+output_file = os.getenv('OUTPUT_FILE', os.path.join(script_dir, f's3_bucket_object_count_{datetime.now().date()}.csv'))
+
+# === Load Config ===
+with open(config_path, 'r') as f:
+    config = json.load(f)
+
+# === AWS Setup ===
+access_key = config['aws_prod']['access_key_prod']
+secret_key = config['aws_prod']['secret_key_prod']
+region = config['aws_prod']['region_prod']
+
+# === Initialize S3 client ===
+s3 = boto3.client(
+    's3',
+    aws_access_key_id=access_key,
+    aws_secret_access_key=secret_key,
+    region_name=region,
+    verify=False  # Remove this in production
+)
+
+# === Define the buckets to query ===
+bucket_names = config['services']['s3_prod']['buckets']  # expects a list like ["bucket1", "bucket2", "bucket3"]
+
+def count_objects(bucket_name):
+    paginator = s3.get_paginator('list_objects_v2')
+    page_iterator = paginator.paginate(Bucket=bucket_name)
+    
+    count = 0
+    for page in page_iterator:
+        count += page.get('KeyCount', 0)
+    return count
+
+# === Collect Results ===
+results = []
+for bucket in bucket_names:
+    print(f"🔍 Counting objects in bucket: {bucket}")
+    try:
+        total_count = count_objects(bucket)
+        print(f"✅ {bucket}: {total_count} objects")
+        results.append({'bucket_name': bucket, 'object_count': total_count})
+    except Exception as e:
+        print(f"❌ Error counting objects in {bucket}: {e}")
+        results.append({'bucket_name': bucket, 'object_count': 'ERROR'})
+
+# === Write to CSV ===
+with open(output_file, 'w', newline='') as csvfile:
+    fieldnames = ['bucket_name', 'object_count']
+    writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+    writer.writeheader()
+    for row in results:
+        writer.writerow(row)
+
+print(f"\n📁 Report saved to: {output_file}")
