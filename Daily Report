@@ -1,0 +1,10 @@
+Can you please build a script to query the dynamo DB table and dump into CSV ? Every day we should be able to just run the script, generate the csv .. Metrics should cover 
+Number of files processed
+Number of containers used
+Number of Redacted Vs Sovereign files 
+Time taken per file 
+Number of pages for redacted files
+Avg processing time
+If #5 is heavy lift , ignore it.. just thinking what would make sense to have in a status report
+ 
+This needs to go out as daily status report... 
