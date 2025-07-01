@@ -294,6 +294,7 @@ import json
 import boto3
 import csv
 from datetime import datetime
+from collections import defaultdict
 
 # === Config Paths ===
 script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -319,7 +320,7 @@ dynamodb = boto3.resource(
 
 table = dynamodb.Table(table_name)
 
-# === Scan Function ===
+# === Scan the full table ===
 def scan_table():
     items = []
     start_key = None
@@ -337,68 +338,78 @@ def scan_table():
 
     return items
 
+# === Process and export summary grouped by pk (date) ===
 def process_and_export(items, output_path):
-    total_files = 0
-    container_ids = set()
-    redacted_files = 0
-    sovereign_files = 0
-    redacted_pages_total = 0
-
-    csv_rows = []
+    daily_items = defaultdict(list)
     for item in items:
-        status = item.get('Status', '').strip()
-        pk = item.get('pk', '')
-        metadata = item.get('Metadata', {})
-        container_id = item.get('container_id', '')
+        pk = item.get('pk', 'UNKNOWN_DATE')
+        daily_items[pk].append(item)
 
-        # Derived fields
-        file_type = 'Non-Sovereign File' if status == 'Redacted' else 'Sovereign File'
-        file_name = metadata.get('file_name', '')
-        num_pages = len(metadata.get('pages', [])) if isinstance(metadata.get('pages', []), list) else 0
+    summary_file = output_path.replace('.csv', '_summary.csv')
+    with open(summary_file, 'w', newline='') as summary_f:
+        summary_writer = csv.writer(summary_f)
+        summary_writer.writerow(['Date', 'Total Files', 'Unique Containers', 'Redacted Files', 'Sovereign Files', 'Redacted Pages'])
 
-        # Metrics
-        total_files += 1
-        if container_id:
-            container_ids.add(container_id)
+        for pk_date in sorted(daily_items.keys()):
+            items_for_day = daily_items[pk_date]
 
-        if file_type == 'Non-Sovereign File':
-            redacted_files += 1
-            redacted_pages_total += num_pages
-        elif file_type == 'Sovereign File':
-            sovereign_files += 1
+            total_files = 0
+            container_ids = set()
+            redacted_files = 0
+            sovereign_files = 0
+            redacted_pages_total = 0
 
-        # Collect row for CSV
-        csv_rows.append({
-            'file_name': file_name,
-            'pk': pk,
-            'Status': status,
-            'file_type': file_type,
-            'num_pages': num_pages
-        })
+            for item in items_for_day:
+                status = item.get('Status', '').strip()
+                container_id = item.get('container_id', '')
 
-    # === Write CSV ===
-    with open(output_path, 'w', newline='') as f:
-        writer = csv.DictWriter(f, fieldnames=['file_name', 'pk', 'Status', 'file_type', 'num_pages'])
-        writer.writeheader()
-        writer.writerows(csv_rows)
+                # Safely parse Metadata
+                raw_metadata = item.get('Metadata', {})
+                if isinstance(raw_metadata, str):
+                    try:
+                        metadata = json.loads(raw_metadata)
+                    except json.JSONDecodeError:
+                        metadata = {}
+                else:
+                    metadata = raw_metadata
 
-    # === Metrics Summary ===
-    print("\n DAILY STATUS REPORT")
-    print(f"Total files processed        : {total_files}")
-    print(f"Total containers used        : {len(container_ids)}")
-    print(f"Non-Sovereign (Redacted)     : {redacted_files}")
-    print(f"Sovereign (Manual Review)    : {sovereign_files}")
-    print(f"Pages in redacted files      : {redacted_pages_total}")
-    print(f"CSV written to               : {output_path}")
+                file_type = 'Non-Sovereign File' if status == 'Redacted' else 'Sovereign File'
+                num_pages = len(metadata.get('pages', [])) if isinstance(metadata.get('pages', []), list) else 0
+
+                total_files += 1
+                if container_id:
+                    container_ids.add(container_id)
+
+                if file_type == 'Non-Sovereign File':
+                    redacted_files += 1
+                    redacted_pages_total += num_pages
+                elif file_type == 'Sovereign File':
+                    sovereign_files += 1
+
+            # === Print Per-Day Summary ===
+            print(f"\n Date: {pk_date}")
+            print(f"Total files processed        : {total_files}")
+            print(f"Total containers used        : {len(container_ids)}")
+            print(f"Non-Sovereign (Redacted)     : {redacted_files}")
+            print(f"Sovereign (Manual Review)    : {sovereign_files}")
+            print(f"Pages in redacted files      : {redacted_pages_total}")
+
+            # === Write Daily Summary Row ===
+            summary_writer.writerow([
+                pk_date, total_files, len(container_ids),
+                redacted_files, sovereign_files, redacted_pages_total
+            ])
+
+    print(f"\n📁 Metrics summary written to: {summary_file}")
 
 # === Main ===
 def main():
+    print(" Scanning DynamoDB table...")
     items = scan_table()
     if not items:
-        print("No items found.")
+        print(" No items found.")
         return
     process_and_export(items, output_file)
 
 if __name__ == '__main__':
     main()
-
