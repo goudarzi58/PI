@@ -1,0 +1,139 @@
+import os
+import boto3
+import json
+import csv
+
+# --- Setup Paths ---
+script_dir = os.path.dirname(os.path.abspath(__file__))
+config_path = os.path.join(script_dir, 'config_local_run.json')
+CSV_FILE = os.path.join(script_dir, 'prod_output_run1_5k.csv')
+
+# --- Load Config ---
+with open(config_path, 'r') as f:
+    config = json.load(f)
+
+# --- Extract AWS Config ---
+access_key = config['aws_prod']['access_key_prod']
+secret_key = config['aws_prod']['secret_key_prod']
+region = config['aws_prod']['region_prod']
+table_name = config['services']['dynamodb']['Metadata_Table_Name']
+
+# --- Connect to DynamoDB ---
+dynamodb_client = boto3.client('dynamodb',
+    aws_access_key_id=access_key,
+    aws_secret_access_key=secret_key,
+    region_name=region, verify=False
+)
+
+# --- Parameters ---
+USE_TARGET_PK = False  # Set to False to scan entire table
+TARGET_PK = '2025-06-30'
+TABLE_NAME = table_name
+
+# --- Extract Metadata JSON ---
+def extract_metadata(item):
+    metadata_str = item.get('Metadata', {}).get('S', '{}')
+    return json.loads(metadata_str)
+
+# --- Process Item Based on File Type and Status ---
+def process_item(item):
+    metadata = extract_metadata(item)
+    file_name = metadata.get('file_name', '') or item.get('ObjectKey', {}).get('S', '')
+    file_name_no_pdf = f"{file_name.split('_')[-1]}"
+
+    file_type = item.get('file_type', {}).get('S', '').strip('"')
+    status = item.get('Status', {}).get('S', '')
+
+    print(f" Processing file: {file_name} | type={file_type}, status={status}")
+
+    #  Case 1: Sovereign File + Manual Review
+    if file_type in ['Sovereign', 'Sovereign File'] and status == 'Manual Review':
+        return [{
+            'File Name': file_name,
+            'File Name No .PDF': file_name_no_pdf,
+            'Redacted Text': 'Sovereign',
+            'Redacted Type': 'Sovereign',
+            'BBox': 'Sovereign',
+            'Textract Confidence Score': 0
+        }]
+
+    #  Case 2: Non-Sovereign File + Redacted
+    if file_type == 'Non-Sovereign File' and status == 'Redacted':
+        pages = metadata.get('pages', [])
+        results = []
+        seen = set()
+
+        for page in pages:
+            for _, entities in page.items():
+                for ent in entities:
+                    key = (ent.get('text', ''), str(ent.get('bbox', '')))
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    results.append({
+                        'File Name': file_name,
+                        'File Name No .PDF': file_name_no_pdf,
+                        'Redacted Text': ent.get('text', ''),
+                        'Redacted Type': ent.get('Entity Type', ''),
+                        'BBox': ent.get('bbox', ''),
+                        'Textract Confidence Score': ent.get('textract_confidence_score', 0)
+                    })
+        return results
+
+    #  Skip all other combinations
+    return []
+
+# --- Query and Export ---
+def query_and_export():
+    paginator = dynamodb_client.get_paginator('scan')
+
+    # Build filters based on pk flag
+    if USE_TARGET_PK:
+        filter_expr = '(#st = :status1 OR #st = :status2) AND #pk = :pkval'
+        expr_values = {
+            ':status1': {'S': 'Redacted'},
+            ':status2': {'S': 'Manual Review'},
+            ':pkval': {'S': TARGET_PK}
+        }
+        expr_names = {'#st': 'Status', '#pk': 'pk'}
+    else:
+        filter_expr = '#st = :status1 OR #st = :status2'
+        expr_values = {
+            ':status1': {'S': 'Redacted'},
+            ':status2': {'S': 'Manual Review'}
+        }
+        expr_names = {'#st': 'Status'}
+
+    # Write to CSV
+    with open(CSV_FILE, mode='w', newline='') as csvfile:
+        fieldnames = ['File Name', 'File Name No .PDF', 'Redacted Text', 'Redacted Type', 'BBox', 'Textract Confidence Score']
+        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+        writer.writeheader()
+
+        for page in paginator.paginate(
+            TableName=TABLE_NAME,
+            FilterExpression=filter_expr,
+            ExpressionAttributeValues=expr_values,
+            ExpressionAttributeNames=expr_names
+        ):
+            items = page.get('Items', [])
+            print(f" Scanned page: {len(items)} items")
+
+            for item in items:
+                for row in process_item(item):
+                    writer.writerow(row)
+
+    print(f"\n CSV Export Complete: {CSV_FILE}")
+
+# --- Run ---
+if __name__ == "__main__":
+    query_and_export()
+########Metadata:
+
+{"file_name": "T001487413890001V0000R000250028134015P00092D001487413890001UCC_BEST_OriginalFiling_1487413890001.PDF", "partition_key": "2025-07-01", "sort_key": "jr_03732ddf-5816-4db2-b042-a8c70d830b15", "pages": [{"1": [{"text": "GEN953521425", "Entity Type": "Vehicle Identification Number (VIN)", "bbox": [189, 937, 300, 950], "textract_confidence_score": 93.03, "status": "redacted"}, {"text": "6EKJ1122490", "Entity Type": "Vehicle Identification Number (VIN)", "bbox": [475, 938, 576, 951], "textract_confidence_score": 98.24, "status": "redacted"}, {"text": "41YAB2011S1106884", "Entity Type": "Vehicle Identification Number (VIN)", "bbox": [43, 956, 202, 969], "textract_confidence_score": 96.84, "status": "redacted"}]}]}
+
+###########
+
+No PII/PHI Detected
+
+file_name	redacted_text	redacted_type	bbox	txtract_confidence score	page
