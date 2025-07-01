@@ -1,3 +1,5 @@
+
+{"file_name": "T001488793520001V0000R000002500300606P00092D001488793520001UCC_BEST_OriginalFiling_1488793520001.PDF", "partition_key": "2025-07-01", "sort_key": "jr_0000000a-bb48-4b1e-bf95-9a8bb366be6f", "pages": [{"1": []}]}
 DynamoDB table with several columns, including:
 
 pk (String): This appears to be the partition key, which is a date format (e.g., "2025-06-24").
