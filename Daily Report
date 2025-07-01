@@ -8,7 +8,15 @@ Avg processing time
 If #5 is heavy lift , ignore it.. just thinking what would make sense to have in a status report
  
 This needs to go out as daily status report... 
-
+##############################
+Metadata
+ObjectKey
+Status
+StatusMessage
+Textract_Confidence_Score
+file_type
+jobid
+pk
 
 ###############################
 
