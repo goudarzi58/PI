@@ -197,3 +197,88 @@ def query_and_export():
 # --- Run ---
 if __name__ == "__main__":
     query_and_export()
+
+##################################################
+
+
+import os
+import json
+import boto3
+import csv
+from datetime import datetime
+
+# === Global Configuration ===
+script_dir = os.path.dirname(os.path.abspath(__file__))
+config_path = os.getenv('CONFIG_PATH', os.path.join(script_dir, 'config_local_run.json'))
+output_file = os.getenv('OUTPUT_FILE', os.path.join(script_dir, f'dynamodb_dump_{datetime.now().date()}.csv'))
+
+# === Load Config ===
+with open(config_path, 'r') as f:
+    config = json.load(f)
+
+# === AWS Credentials and Table Info ===
+access_key = config['aws_prod']['access_key_prod']
+secret_key = config['aws_prod']['secret_key_prod']
+REGION = config['aws_prod']['region_prod']
+table_name = config['services']['dynamodb']['table_name_prod']
+
+# === Connect to DynamoDB ===
+dynamodb = boto3.resource(
+    'dynamodb',
+    aws_access_key_id=access_key,
+    aws_secret_access_key=secret_key,
+    region_name=REGION
+)
+
+table = dynamodb.Table(table_name)
+
+# === Scan Full Table ===
+def scan_full_table():
+    items = []
+    start_key = None
+    while True:
+        if start_key:
+            response = table.scan(ExclusiveStartKey=start_key)
+        else:
+            response = table.scan()
+
+        items.extend(response.get('Items', []))
+        start_key = response.get('LastEvaluatedKey')
+
+        if not start_key:
+            break
+
+    return items
+
+# === Dump Items to CSV ===
+def dump_to_csv(items, output_path):
+    # Discover all unique keys
+    all_keys = set()
+    for item in items:
+        all_keys.update(item.keys())
+    sorted_keys = sorted(all_keys)
+
+    with open(output_path, 'w', newline='') as csvfile:
+        writer = csv.DictWriter(csvfile, fieldnames=sorted_keys)
+        writer.writeheader()
+        for item in items:
+            writer.writerow({key: item.get(key, '') for key in sorted_keys})
+
+    print(f"✅ DynamoDB table dumped to: {output_path}")
+    print(f"🔢 Total items written: {len(items)}")
+    print(f"🗂 Columns: {sorted_keys}")
+
+# === Main ===
+def main():
+    print("📥 Scanning DynamoDB table...")
+    items = scan_full_table()
+
+    if not items:
+        print("⚠ No items found in the table.")
+        return
+
+    print("💾 Writing to CSV...")
+    dump_to_csv(items, output_file)
+
+if __name__ == '__main__':
+    main()
