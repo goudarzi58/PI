@@ -284,3 +284,121 @@ def main():
 
 if __name__ == '__main__':
     main()
+
+
+
+###################################
+
+import os
+import json
+import boto3
+import csv
+from datetime import datetime
+
+# === Config Paths ===
+script_dir = os.path.dirname(os.path.abspath(__file__))
+config_path = os.getenv('CONFIG_PATH', os.path.join(script_dir, 'config_local_run.json'))
+output_file = os.getenv('OUTPUT_FILE', os.path.join(script_dir, f'daily_dynamo_report_{datetime.now().date()}.csv'))
+
+# === Load Config ===
+with open(config_path, 'r') as f:
+    config = json.load(f)
+
+# === AWS Setup ===
+access_key = config['aws_prod']['access_key_prod']
+secret_key = config['aws_prod']['secret_key_prod']
+region = config['aws_prod']['region_prod']
+table_name = config['services']['dynamodb']['table_name_prod']
+
+dynamodb = boto3.resource(
+    'dynamodb',
+    aws_access_key_id=access_key,
+    aws_secret_access_key=secret_key,
+    region_name=region
+)
+
+table = dynamodb.Table(table_name)
+
+# === Scan Function ===
+def scan_table():
+    items = []
+    start_key = None
+
+    while True:
+        if start_key:
+            response = table.scan(ExclusiveStartKey=start_key)
+        else:
+            response = table.scan()
+
+        items.extend(response.get('Items', []))
+        start_key = response.get('LastEvaluatedKey')
+        if not start_key:
+            break
+
+    return items
+
+def process_and_export(items, output_path):
+    total_files = 0
+    container_ids = set()
+    redacted_files = 0
+    sovereign_files = 0
+    redacted_pages_total = 0
+
+    csv_rows = []
+    for item in items:
+        status = item.get('Status', '').strip()
+        pk = item.get('pk', '')
+        metadata = item.get('Metadata', {})
+        container_id = item.get('container_id', '')
+
+        # Derived fields
+        file_type = 'Non-Sovereign File' if status == 'Redacted' else 'Sovereign File'
+        file_name = metadata.get('file_name', '')
+        num_pages = len(metadata.get('pages', [])) if isinstance(metadata.get('pages', []), list) else 0
+
+        # Metrics
+        total_files += 1
+        if container_id:
+            container_ids.add(container_id)
+
+        if file_type == 'Non-Sovereign File':
+            redacted_files += 1
+            redacted_pages_total += num_pages
+        elif file_type == 'Sovereign File':
+            sovereign_files += 1
+
+        # Collect row for CSV
+        csv_rows.append({
+            'file_name': file_name,
+            'pk': pk,
+            'Status': status,
+            'file_type': file_type,
+            'num_pages': num_pages
+        })
+
+    # === Write CSV ===
+    with open(output_path, 'w', newline='') as f:
+        writer = csv.DictWriter(f, fieldnames=['file_name', 'pk', 'Status', 'file_type', 'num_pages'])
+        writer.writeheader()
+        writer.writerows(csv_rows)
+
+    # === Metrics Summary ===
+    print("\n DAILY STATUS REPORT")
+    print(f"Total files processed        : {total_files}")
+    print(f"Total containers used        : {len(container_ids)}")
+    print(f"Non-Sovereign (Redacted)     : {redacted_files}")
+    print(f"Sovereign (Manual Review)    : {sovereign_files}")
+    print(f"Pages in redacted files      : {redacted_pages_total}")
+    print(f"CSV written to               : {output_path}")
+
+# === Main ===
+def main():
+    items = scan_table()
+    if not items:
+        print("No items found.")
+        return
+    process_and_export(items, output_file)
+
+if __name__ == '__main__':
+    main()
+
