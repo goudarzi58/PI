@@ -1,0 +1,59 @@
+🗂️ DynamoDB Tables
+✅ Create new DynamoDB tables in the Appian (480) account (not in 1608).
+
+✅ Use clear naming conventions:
+
+Avoid environment names like dev, prod, or test in table names.
+
+Use format like: UCC-PII-Redaction-JobRuns or UCC-PII-Redaction-Status.
+
+Prefix with UCC- or CSS- depending on data type.
+
+✅ Clean up/delete existing tables in 1608 if not required.
+
+✅ Confirm/extend current schema (beyond two columns) to include execution status and result metadata.
+
+🪣 S3 Buckets
+✅ Create the following buckets in the Appian (480) account:
+
+sos-apn-prod-ucc-redaction
+
+sos-apn-prod-ucc-reviewjson
+
+✅ Maintain consistent naming aligned with existing input bucket sos-apn-prod-ucc.
+
+🚫 Avoid suffixes with hex values (e.g., -exa-value) unless strictly required.
+
+✅ Use suffixes like -redaction or -reviewjson to indicate purpose.
+
+✅ Input and output files should both live in the Appian account.
+
+🔔 CloudWatch Logs & Alarms
+✅ CloudWatch logs and alarms should remain in the 1608 (processing) account.
+
+✅ No need to store logs in the Appian account.
+
+✅ Set up alarms for critical metrics (e.g., queue depth, processing failure).
+
+📬 SQS Queues
+✅ Name queues clearly, e.g.:
+
+ucc-pii-redaction-queue-dev
+
+ucc-pii-redaction-queue-prod
+
+🚫 Avoid generic names or hex-based suffixes unless needed for uniqueness.
+
+✅ If dev and prod queues exist in the same account, ensure queue names are environment-specific.
+
+⚙️ Code & Config Management
+ Code should reference static logical identifiers (e.g., REDACTION_OUTPUT_BUCKET) via:
+
+Environment variables
+
+Configuration files
+
+Avoid hardcoding physical bucket/table/queue names in scripts.
+
+Logical references should bind to physical names per environment for portability.
+
